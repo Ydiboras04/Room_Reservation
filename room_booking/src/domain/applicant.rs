@@ -14,4 +14,8 @@ impl Applicant {
             id, name
         })
     }
+
+    pub fn get_id(&self) -> &str {
+        &self.id
+    }
 }

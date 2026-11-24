@@ -147,6 +147,10 @@ impl Booking {
         &self.id
     }
 
+    pub fn get_applicant(&self) -> &Applicant {
+        &self.applicant
+    }
+
     pub fn get_event_date(&self) -> NaiveDate {
         self.event_date
     }
