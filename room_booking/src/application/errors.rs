@@ -2,7 +2,7 @@
 
 use crate::{
     application::ports::RepositoryError,
-    domain::errors::{BookingError, ResponsibleError, SystemError},
+    domain::errors::{BookingError, ResponsibleError, SystemError, UserError},
 };
 
 /// Erreurs des use cases : celles du domaine, plus ce qui vient du chargement des données.
@@ -22,6 +22,9 @@ pub enum ApplicationError {
 
     #[error(transparent)]
     Responsible(#[from] ResponsibleError),
+
+    #[error(transparent)]
+    User(#[from] UserError),
 
     #[error(transparent)]
     Booking(#[from] BookingError),

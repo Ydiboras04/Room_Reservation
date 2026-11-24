@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use super::{read, upsert, write};
 use crate::{
     application::ports::{BookingRepository, RepositoryError},
-    domain::booking::Booking,
+    domain::booking::{Booking, BookingStatus},
 };
 
 /// Dépôt de réservations en mémoire.
@@ -27,6 +27,18 @@ impl BookingRepository for InMemoryBookingRepository {
 
     async fn find_by_date(&self, date: NaiveDate) -> Result<Vec<Booking>, RepositoryError> {
         Ok(read(&self.bookings)?.iter().filter(|b| b.get_event_date() == date).cloned().collect())
+    }
+
+    async fn find_by_applicant(&self, applicant_id: &str) -> Result<Vec<Booking>, RepositoryError> {
+        Ok(read(&self.bookings)?.iter().filter(|b| b.get_applicant().get_id() == applicant_id).cloned().collect())
+    }
+
+    async fn find_by_status(&self, status: BookingStatus) -> Result<Vec<Booking>, RepositoryError> {
+        Ok(read(&self.bookings)?.iter().filter(|b| *b.get_status() == status).cloned().collect())
+    }
+
+    async fn find_all(&self) -> Result<Vec<Booking>, RepositoryError> {
+        Ok(read(&self.bookings)?.clone())
     }
 
     async fn find_active(&self) -> Result<Vec<Booking>, RepositoryError> {

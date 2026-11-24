@@ -5,11 +5,12 @@
 
 use axum::{
     Json,
-    extract::rejection::JsonRejection,
+    extract::rejection::{JsonRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::{
     application::errors::ApplicationError,
@@ -25,12 +26,17 @@ pub struct ApiError {
     alternatives: Option<Vec<TimeSlotDto>>,
 }
 
-#[derive(Serialize)]
-struct ErrorBody<'a> {
-    error: &'a str,
-    message: &'a str,
+/// Corps de toute réponse d'erreur.
+#[derive(Serialize, ToSchema)]
+pub struct ErrorBody {
+    /// Code stable, à utiliser par les clients (le message, lui, peut changer).
+    #[schema(example = "slot_unavailable")]
+    error: &'static str,
+    /// Explication lisible, en français.
+    message: String,
+    /// Uniquement pour `slot_unavailable` : créneaux libres proposés le même jour.
     #[serde(skip_serializing_if = "Option::is_none")]
-    alternatives: Option<&'a [TimeSlotDto]>,
+    alternatives: Option<Vec<TimeSlotDto>>,
 }
 
 impl ApiError {
@@ -41,11 +47,7 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = ErrorBody {
-            error: self.code,
-            message: &self.message,
-            alternatives: self.alternatives.as_deref(),
-        };
+        let body = ErrorBody { error: self.code, message: self.message, alternatives: self.alternatives };
         (self.status, Json(body)).into_response()
     }
 }
@@ -67,7 +69,7 @@ impl From<ApplicationError> for ApiError {
             E::UserNotFound(_) => (StatusCode::UNAUTHORIZED, "unknown_user"),
             E::NotBookingOwner { .. } => (StatusCode::FORBIDDEN, "not_booking_owner"),
 
-            E::Responsible(ResponsibleError::User(_)) => (StatusCode::FORBIDDEN, "missing_role"),
+            E::Responsible(ResponsibleError::User(_)) | E::User(_) => (StatusCode::FORBIDDEN, "missing_role"),
             E::Responsible(ResponsibleError::BookingNotRequested(_)) => {
                 (StatusCode::CONFLICT, "booking_not_requested")
             }
@@ -124,5 +126,12 @@ fn booking_error_code(error: &BookingError) -> &'static str {
 impl From<JsonRejection> for ApiError {
     fn from(rejection: JsonRejection) -> Self {
         Self::new(rejection.status(), "invalid_body", rejection.body_text())
+    }
+}
+
+/// Paramètre de requête invalide (`?status=inconnu`, date mal formée…).
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_query", rejection.body_text())
     }
 }

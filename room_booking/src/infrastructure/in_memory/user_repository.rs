@@ -23,6 +23,10 @@ impl UserRepository for InMemoryUserRepository {
         Ok(read(&self.users)?.iter().find(|u| u.get_id() == id).cloned())
     }
 
+    async fn find_all(&self) -> Result<Vec<User>, RepositoryError> {
+        Ok(read(&self.users)?.clone())
+    }
+
     async fn save(&self, user: User) -> Result<(), RepositoryError> {
         upsert(&mut *write(&self.users)?, user, |a, b| a.get_id() == b.get_id());
         Ok(())

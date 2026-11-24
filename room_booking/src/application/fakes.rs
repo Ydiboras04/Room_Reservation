@@ -11,7 +11,11 @@ pub use crate::infrastructure::in_memory::{
 };
 use crate::{
     application::ports::{BookingRepository, Clock, Notifier, RepositoryError, UserRepository},
-    domain::{booking::Booking, system::TimeSlot, user::User},
+    domain::{
+        booking::{Booking, BookingStatus},
+        system::TimeSlot,
+        user::User,
+    },
 };
 
 /// Dépôt dont le stockage est en panne : chaque appel échoue.
@@ -32,6 +36,18 @@ impl BookingRepository for FailingRepository {
         Err(storage_down())
     }
 
+    async fn find_by_applicant(&self, _applicant_id: &str) -> Result<Vec<Booking>, RepositoryError> {
+        Err(storage_down())
+    }
+
+    async fn find_by_status(&self, _status: BookingStatus) -> Result<Vec<Booking>, RepositoryError> {
+        Err(storage_down())
+    }
+
+    async fn find_all(&self) -> Result<Vec<Booking>, RepositoryError> {
+        Err(storage_down())
+    }
+
     async fn find_active(&self) -> Result<Vec<Booking>, RepositoryError> {
         Err(storage_down())
     }
@@ -43,6 +59,10 @@ impl BookingRepository for FailingRepository {
 
 impl UserRepository for FailingRepository {
     async fn find_by_id(&self, _id: &str) -> Result<Option<User>, RepositoryError> {
+        Err(storage_down())
+    }
+
+    async fn find_all(&self) -> Result<Vec<User>, RepositoryError> {
         Err(storage_down())
     }
 

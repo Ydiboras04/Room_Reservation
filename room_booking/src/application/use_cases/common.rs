@@ -35,3 +35,8 @@ pub async fn load_owned_booking(
     }
     Ok(booking)
 }
+
+/// Trie par date puis heure de début de l'événement (ordre d'affichage des listes).
+pub fn sort_chronologically(bookings: &mut [Booking]) {
+    bookings.sort_by_key(|b| (b.get_event_date(), b.get_event_start()));
+}

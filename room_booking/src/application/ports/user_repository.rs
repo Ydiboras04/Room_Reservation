@@ -4,5 +4,6 @@ use crate::{application::ports::RepositoryError, domain::user::User};
 /// (Asynchrone et partagé : voir `BookingRepository`.)
 pub trait UserRepository: Send + Sync {
     fn find_by_id(&self, id: &str) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
+    fn find_all(&self) -> impl Future<Output = Result<Vec<User>, RepositoryError>> + Send;
     fn save(&self, user: User) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 }

@@ -2,7 +2,9 @@
 //! et démarre l'API HTTP. Aucune logique métier ici.
 //!
 //! Variables d'environnement :
-//! - `ADDR` : adresse d'écoute (défaut `127.0.0.1:3000`).
+//! - `ADDR` : adresse d'écoute (défaut `127.0.0.1:3000`) ;
+//! - `CORS_ORIGINS` : origines autorisées à appeler l'API depuis un navigateur, séparées par
+//!   des virgules (défaut : le serveur de dev Vite, `http://localhost:5173,http://127.0.0.1:5173`).
 
 use std::{sync::Arc, time::Duration};
 
@@ -13,7 +15,7 @@ use room_booking::{
     },
     infrastructure::{
         ConsoleNotifier, SystemClock,
-        http::router,
+        http::{DOCS_PATH, cors_layer, parse_origins, router},
         in_memory::{InMemoryBookingRepository, InMemoryRoomRepository, InMemoryUserRepository},
         scheduler::spawn_scheduled_checks,
         state::{AppState, InMemory},
@@ -23,6 +25,8 @@ use tokio::net::TcpListener;
 
 /// Fréquence des contrôles périodiques (rappels, expirations, no-shows, fins d'événement).
 const SCHEDULED_CHECKS_PERIOD: Duration = Duration::from_secs(60);
+
+const DEFAULT_CORS_ORIGINS: &str = "http://localhost:5173,http://127.0.0.1:5173";
 
 #[tokio::main]
 async fn main() {
@@ -36,13 +40,18 @@ async fn main() {
 
     spawn_scheduled_checks(state.clone(), SCHEDULED_CHECKS_PERIOD);
 
+    let cors_origins = std::env::var("CORS_ORIGINS").unwrap_or_else(|_| DEFAULT_CORS_ORIGINS.to_string());
+    let cors = cors_layer(parse_origins(&cors_origins).unwrap_or_else(|error| panic!("{error}")));
+
     let addr = std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     let listener = TcpListener::bind(&addr)
         .await
         .unwrap_or_else(|error| panic!("impossible d'écouter sur {addr} : {error}"));
     println!("API de réservation à l'écoute sur http://{addr}");
+    println!("CORS autorisé pour : {cors_origins}");
+    println!("Documentation : http://{addr}{DOCS_PATH}");
 
-    axum::serve(listener, router(state))
+    axum::serve(listener, router(state).layer(cors))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
             println!("\narrêt du serveur");

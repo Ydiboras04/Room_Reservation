@@ -11,6 +11,7 @@ use chrono::NaiveDateTime;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
+use utoipa::OpenApi;
 
 use crate::{
     application::fakes::{
@@ -25,7 +26,7 @@ use crate::{
         user::{User, UserRole},
     },
     infrastructure::{
-        http::{USER_ID_HEADER, router},
+        http::{ApiDoc, DOCS_PATH, SPEC_PATH, USER_ID_HEADER, cors_layer, parse_origins, router},
         state::{Adapters, AppState},
     },
 };
@@ -367,4 +368,201 @@ async fn storage_failure_is_500_without_leaking_details() {
     assert_eq!(reply.json["error"], "internal_error");
     assert!(!reply.json["message"].as_str().unwrap().contains("base de données"));
     assert!(state.notifier.sent().is_empty());
+}
+
+// ---------- listes ----------
+
+#[tokio::test]
+async fn users_are_listed_for_the_login_screen() {
+    let reply = call(&app(), Method::GET, "/users", None, None).await;
+
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.json[0], json!({ "id": "A-001", "name": "User1", "role": "applicant" }));
+    assert_eq!(reply.json[2]["role"], "responsible");
+}
+
+#[tokio::test]
+async fn my_bookings_lists_only_the_callers_bookings() {
+    let state = app_at(requested_at(), vec![approved_booking()]);
+    submit(&state, "A-002", &["R-101"], 10, "14:00", "15:00").await;
+
+    let mine = call(&state, Method::GET, "/bookings/mine", Some("A-001"), None).await;
+    assert_eq!(mine.status, StatusCode::OK);
+    assert_eq!(mine.json.as_array().unwrap().len(), 1);
+    assert_eq!(mine.json[0]["id"], "B-001");
+
+    let theirs = call(&state, Method::GET, "/bookings/mine", Some("A-002"), None).await;
+    assert_eq!(theirs.json.as_array().unwrap().len(), 1);
+    assert_eq!(theirs.json[0]["applicant_id"], "A-002");
+}
+
+#[tokio::test]
+async fn my_bookings_requires_the_user_header() {
+    let reply = call(&app(), Method::GET, "/bookings/mine", None, None).await;
+
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn responsible_lists_requests_waiting_for_approval() {
+    let state = app_at(
+        requested_at(),
+        vec![approved_booking(), booking("B-PENDING", amphi(), BookingStatus::Requested, t(14, 0), t(16, 0))],
+    );
+
+    let pending = call(&state, Method::GET, "/bookings?status=requested", Some("RESP-001"), None).await;
+    assert_eq!(pending.status, StatusCode::OK);
+    assert_eq!(pending.json.as_array().unwrap().len(), 1);
+    assert_eq!(pending.json[0]["id"], "B-PENDING");
+
+    let all = call(&state, Method::GET, "/bookings", Some("RESP-001"), None).await;
+    assert_eq!(all.json.as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn applicant_cannot_list_all_bookings() {
+    let reply = call(&app(), Method::GET, "/bookings", Some("A-001"), None).await;
+
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert_eq!(reply.json["error"], "missing_role");
+}
+
+#[tokio::test]
+async fn unknown_status_filter_is_400() {
+    let reply = call(&app(), Method::GET, "/bookings?status=archived", Some("RESP-001"), None).await;
+
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.json["error"], "invalid_query");
+}
+
+// ---------- disponibilités ----------
+
+#[tokio::test]
+async fn room_availability_shows_busy_slots_and_opening_hours() {
+    let state = app_at(requested_at(), vec![approved_booking()]);
+
+    let reply = call(&state, Method::GET, &format!("/rooms/R-101/availability?date={}", event_date()), None, None).await;
+
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.json["room"]["id"], "R-101");
+    assert_eq!(reply.json["opening"], json!({ "start": "07:00:00", "end": "19:00:00" }));
+    assert_eq!(reply.json["busy"], json!([{ "start": "10:00:00", "end": "12:00:00", "status": "approved" }]));
+}
+
+#[tokio::test]
+async fn availability_of_unknown_room_is_404() {
+    let reply = call(&app(), Method::GET, &format!("/rooms/R-999/availability?date={}", event_date()), None, None).await;
+
+    assert_eq!(reply.status, StatusCode::NOT_FOUND);
+    assert_eq!(reply.json["error"], "room_not_found");
+}
+
+#[tokio::test]
+async fn availability_without_date_is_400() {
+    let reply = call(&app(), Method::GET, "/rooms/R-101/availability", None, None).await;
+
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.json["error"], "invalid_query");
+}
+
+// ---------- CORS ----------
+
+const FRONTEND: &str = "http://localhost:5173";
+
+async fn cors_call(request: Request<Body>) -> axum::response::Response {
+    let layer = cors_layer(parse_origins(FRONTEND).unwrap());
+    router(app()).layer(layer).oneshot(request).await.unwrap()
+}
+
+fn preflight(origin: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::OPTIONS)
+        .uri("/bookings")
+        .header(header::ORIGIN, origin)
+        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-user-id")
+        .body(Body::empty())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn cors_preflight_allows_the_frontend_origin_and_user_header() {
+    let response = cors_call(preflight(FRONTEND)).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers();
+    assert_eq!(headers[header::ACCESS_CONTROL_ALLOW_ORIGIN], FRONTEND);
+    let allowed = headers[header::ACCESS_CONTROL_ALLOW_HEADERS].to_str().unwrap();
+    assert!(allowed.contains("x-user-id") && allowed.contains("content-type"), "{allowed}");
+}
+
+#[tokio::test]
+async fn cors_rejects_other_origins() {
+    let response = cors_call(preflight("http://evil.example")).await;
+
+    assert!(response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+}
+
+#[tokio::test]
+async fn cors_exposes_the_location_header_to_the_frontend() {
+    let body = json!({ "room_ids": ["R-101"], "participants": 20, "event_date": event_date(), "event_start": "10:00", "event_end": "11:00" });
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/bookings")
+        .header(header::ORIGIN, FRONTEND)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(USER_ID_HEADER, "A-001")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+
+    let response = cors_call(request).await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], FRONTEND);
+    let exposed = response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS].to_str().unwrap();
+    assert!(exposed.contains("location"), "{exposed}");
+}
+
+// ---------- documentation OpenAPI ----------
+
+/// Chaque route documentée doit exister dans le router : un chemin mal recopié dans
+/// `#[utoipa::path]` ferait échouer ce test. Une route inconnue d'axum répond 404 sans corps
+/// (nos 404 métier ont un corps JSON) et une méthode non routée répond 405.
+#[tokio::test]
+async fn every_documented_route_exists_in_the_router() {
+    let spec = ApiDoc::openapi();
+    let mut checked = 0;
+
+    for (path, item) in &spec.paths.paths {
+        let concrete = path.replace("{id}", "unknown");
+        let operations = [(Method::GET, item.get.is_some()), (Method::POST, item.post.is_some())];
+        for (method, documented) in operations {
+            if !documented {
+                continue;
+            }
+            let reply = call(&app(), method.clone(), &concrete, Some("A-001"), None).await;
+            assert_ne!(reply.status, StatusCode::METHOD_NOT_ALLOWED, "{method} {path} documenté mais pas routé");
+            assert!(
+                !(reply.status == StatusCode::NOT_FOUND && reply.json.is_null()),
+                "{method} {path} documenté mais inconnu du router"
+            );
+            checked += 1;
+        }
+    }
+
+    assert_eq!(checked, 11, "nombre d'opérations documentées");
+}
+
+#[tokio::test]
+async fn openapi_spec_and_swagger_ui_are_served() {
+    let spec = call(&app(), Method::GET, SPEC_PATH, None, None).await;
+    assert_eq!(spec.status, StatusCode::OK);
+    assert_eq!(spec.json["info"]["title"], "Room Booking API");
+    assert_eq!(spec.json["components"]["securitySchemes"]["user_id"]["name"], "X-User-Id");
+
+    let request = Request::builder().uri(format!("{DOCS_PATH}/")).body(Body::empty()).unwrap();
+    let response = router(app()).oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&html).contains("Swagger UI"));
 }
