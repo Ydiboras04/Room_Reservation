@@ -1,5 +1,5 @@
 mod domain;
 
 fn main() {
-    println!("Hello, world!");
+    println!("Room Reservation Application");
 }

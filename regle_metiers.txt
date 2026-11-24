@@ -1,0 +1,8 @@
+Les 6 règles et leur place dans le diagramme
+Règle	Signification	Élément du BPMN	Exemple qui échoue
+R1 : créneau valide	Entre 7h et 19h, durée de 30 min à 4 h, par pas de 30 min	Tâche « Vérifier les règles R1, R2, R4 »	08:00–08:45 (pas de 30 min) ; 06:30–08:00 (avant 7h) ; 08:00–13:00 (5 h)
+R2 : capacité	Nombre de participants ≤ capacité de la salle	Même tâche	40 personnes en salle 101 (30 places)
+R3 : conflit	Le créneau ne doit chevaucher aucune réservation en attente ou confirmée	Tâche « Vérifier les conflits (R3) » + passerelle « Créneau libre ? »	09:30–10:30 alors que 08:00–10:00 est déjà pris
+R4 : délai	Réserver au moins 24 h à l'avance et au plus 30 jours	Tâche « Vérifier les règles R1, R2, R4 »	Demande lundi 15h pour mardi 10h (19 h d'avance)
+R5 : validation	Salle standard → confirmée automatiquement ; amphithéâtre → validée par le responsable	Passerelle « Type de salle ? »	Pas d'échec : la règle choisit seulement le chemin
+R6 : annulation	Annulation possible seulement jusqu'à 2 h avant le début	Sous-processus « Annulation » : tâche « Vérifier le délai (R6) » + passerelle « ≥ 2 h avant ? »	Annuler à 08:30 une réservation de 10:00
