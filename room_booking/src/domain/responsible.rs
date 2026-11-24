@@ -31,7 +31,7 @@ impl Responsible {
             return Err(ResponsibleError::BookingNotRequested(status));
         }
 
-        booking.set_status(BookingStatus::Approved);
+        booking.approve();
         Ok(())
     }
 }

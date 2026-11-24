@@ -22,37 +22,57 @@ pub const MAX_LEAD_DAYS: i64 = 30;
 // R6 : délai d'annulation
 pub const MIN_CANCELLATION_HOURS: i64 = 2;
 
+// Check-in : au-delà de 15 min après le début sans check-in, les salles sont libérées
+pub const CHECK_IN_GRACE_MINUTES: i64 = 15;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BookingStatus {
     Requested,
     Approved,
     Declined,
-    Cancelled
+    Cancelled,
+    NoShow,
 }
 
 #[derive(Debug, Clone)]
 pub struct Booking {
     id: String,
     applicant: Applicant,
-    room: Room,
+    rooms: Vec<Room>,
     status: BookingStatus,
     participants: u8,
     event_date: NaiveDate,
     event_start: NaiveTime,
     event_end: NaiveTime,
     expired: bool,
+    checked_in: bool,
     requested_at: NaiveDateTime,
 }
 
 impl Booking {
-    pub fn new (id: String, applicant: Applicant, room: Room, status: BookingStatus, participants: u8, event_date: NaiveDate, event_start: NaiveTime, event_end: NaiveTime, requested_at: NaiveDateTime) -> Result<Self, BookingError> {
+    pub fn new (id: String, applicant: Applicant, rooms: Vec<Room>, status: BookingStatus, participants: u8, event_date: NaiveDate, event_start: NaiveTime, event_end: NaiveTime, requested_at: NaiveDateTime) -> Result<Self, BookingError> {
+        Self::check_rooms(&rooms)?;
         Self::check_slot(event_start, event_end)?;                       // R1
-        Self::check_capacity(&room, participants)?;                      // R2
+        Self::check_capacity(&rooms, participants)?;                     // R2
         Self::check_lead_time(event_date.and_time(event_start), requested_at)?; // R4
 
         Ok(Self{
-            id, applicant, room, status, participants, event_date, event_start, event_end, expired: false, requested_at
+            id, applicant, rooms, status, participants, event_date, event_start, event_end,
+            expired: false, checked_in: false, requested_at
         })
+    }
+
+    /// Au moins une salle, et pas deux fois la même.
+    fn check_rooms(rooms: &[Room]) -> Result<(), BookingError> {
+        if rooms.is_empty() {
+            return Err(BookingError::NoRoomSelected);
+        }
+        for (i, room) in rooms.iter().enumerate() {
+            if rooms[..i].iter().any(|other| other.get_id() == room.get_id()) {
+                return Err(BookingError::DuplicateRoom(room.get_id().to_string()));
+            }
+        }
+        Ok(())
     }
 
     /// R1 : entre 7h et 19h, durée de 30 min à 4h, par pas de 30 min.
@@ -78,9 +98,10 @@ impl Booking {
         Ok(())
     }
 
-    /// R2 : nombre de participants ≤ capacité de la salle.
-    fn check_capacity(room: &Room, participants: u8) -> Result<(), BookingError> {
-        if !room.can_host(participants) {
+    /// R2 : nombre de participants ≤ capacité totale des salles réservées.
+    fn check_capacity(rooms: &[Room], participants: u8) -> Result<(), BookingError> {
+        let total: u32 = rooms.iter().map(|room| room.get_capacity() as u32).sum();
+        if participants as u32 > total {
             return Err(BookingError::ParticipantsSmallerThanRoomCapacity);
         }
         Ok(())
@@ -103,12 +124,24 @@ impl Booking {
         &self.status
     }
 
+    pub fn get_rooms(&self) -> &[Room] {
+        &self.rooms
+    }
+
     pub fn is_expired(&self) -> bool {
         self.expired
     }
 
+    pub fn is_checked_in(&self) -> bool {
+        self.checked_in
+    }
+
     pub fn event_start_at(&self) -> NaiveDateTime {
         self.event_date.and_time(self.event_start)
+    }
+
+    pub fn event_end_at(&self) -> NaiveDateTime {
+        self.event_date.and_time(self.event_end)
     }
 
     pub fn update_expiry(&mut self, now: NaiveDateTime) -> Result<(), BookingError> {
@@ -124,10 +157,21 @@ impl Booking {
         Ok(())
     }
 
+    /// Approuve la réservation et marque toutes ses salles comme occupées.
+    pub fn approve(&mut self) {
+        self.status = BookingStatus::Approved;
+        self.rooms.iter_mut().for_each(Room::occupy);
+    }
+
+    /// R5 : approuvée automatiquement seulement si toutes les salles sont standard.
     pub fn auto_validate(&mut self) {
-        if self.room.get_kind() == RoomType::Standard {
-            self.status = BookingStatus::Approved;
+        if self.rooms.iter().all(|room| room.get_kind() == RoomType::Standard) {
+            self.approve();
         }
+    }
+
+    fn release_rooms(&mut self) {
+        self.rooms.iter_mut().for_each(Room::release);
     }
 
     pub fn ensure_not_expired(&self) -> Result<(), BookingError> {
@@ -142,15 +186,20 @@ impl Booking {
         match self.status {
             BookingStatus::Requested => !self.expired,
             BookingStatus::Approved => true,
-            BookingStatus::Declined | BookingStatus::Cancelled => false,
+            BookingStatus::Declined | BookingStatus::Cancelled | BookingStatus::NoShow => false,
         }
     }
 
-    /// Même salle, même jour, et les créneaux se chevauchent.
+    /// Au moins une salle en commun, même jour, et les créneaux se chevauchent.
     /// 08:00–10:00 et 10:00–11:00 ne se chevauchent pas.
     pub fn overlaps(&self, other: &Booking) -> bool {
+        let shares_a_room = self
+            .rooms
+            .iter()
+            .any(|room| other.rooms.iter().any(|o| o.get_id() == room.get_id()));
+
         self.id != other.id
-            && self.room.get_id() == other.room.get_id()
+            && shares_a_room
             && self.event_date == other.event_date
             && self.event_start < other.event_end
             && other.event_start < self.event_end
@@ -171,7 +220,45 @@ impl Booking {
             return Err(BookingError::AnnulationTooLate);
         }
         self.status = BookingStatus::Cancelled;
+        self.release_rooms();
         Ok(())
+    }
+
+    /// Check-in du demandeur : possible entre le début de l'événement et 15 min après,
+    /// uniquement pour une réservation approuvée.
+    pub fn check_in(&mut self, now: NaiveDateTime) -> Result<(), BookingError> {
+        if self.checked_in {
+            return Err(BookingError::AlreadyCheckedIn);
+        }
+        if self.status != BookingStatus::Approved {
+            return Err(BookingError::CheckInNotApproved(self.status));
+        }
+        if now < self.event_start_at() {
+            return Err(BookingError::CheckInTooEarly);
+        }
+        if now > self.event_start_at() + TimeDelta::minutes(CHECK_IN_GRACE_MINUTES) {
+            return Err(BookingError::CheckInTooLate);
+        }
+        self.checked_in = true;
+        Ok(())
+    }
+
+    /// Met à jour la disponibilité des salles selon l'heure actuelle :
+    /// - événement terminé → salles libérées ;
+    /// - 15 min après le début sans check-in → `NoShow`, salles libérées.
+    pub fn update_room_availability(&mut self, now: NaiveDateTime) {
+        if self.status != BookingStatus::Approved {
+            return;
+        }
+
+        if now >= self.event_end_at() {
+            self.release_rooms();
+        } else if !self.checked_in
+            && now > self.event_start_at() + TimeDelta::minutes(CHECK_IN_GRACE_MINUTES)
+        {
+            self.status = BookingStatus::NoShow;
+            self.release_rooms();
+        }
     }
 }
 
@@ -213,7 +300,7 @@ pub(crate) mod tests {
         Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            amphi(),
+            vec![amphi()],
             BookingStatus::Requested,
             10,
             event_date(),
@@ -227,7 +314,7 @@ pub(crate) mod tests {
         Booking::new(
             id.into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            room,
+            vec![room],
             status,
             10,
             event_date(),
@@ -293,7 +380,7 @@ pub(crate) mod tests {
         let result = Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            salle_101(),
+            vec![salle_101()],
             BookingStatus::Requested,
             40,
             event_date(),
@@ -309,7 +396,7 @@ pub(crate) mod tests {
         let result = Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            salle_101(),
+            vec![salle_101()],
             BookingStatus::Requested,
             30,
             event_date(),
@@ -385,7 +472,7 @@ pub(crate) mod tests {
         let result = Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            amphi(),
+            vec![amphi()],
             BookingStatus::Requested,
             10,
             event_date(),
@@ -402,7 +489,7 @@ pub(crate) mod tests {
         let result = Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            amphi(),
+            vec![amphi()],
             BookingStatus::Requested,
             10,
             event_date(),
@@ -419,7 +506,7 @@ pub(crate) mod tests {
         let result = Booking::new(
             "B-001".into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
-            amphi(),
+            vec![amphi()],
             BookingStatus::Requested,
             10,
             event_date(),
@@ -494,5 +581,189 @@ pub(crate) mod tests {
 
         assert!(matches!(result, Err(BookingError::NowBeforeRequestDate)));
         assert!(!booking.is_expired());
+    }
+
+    // ---------- plusieurs salles ----------
+
+    fn try_rooms(rooms: Vec<Room>, participants: u8) -> Result<Booking, BookingError> {
+        Booking::new(
+            "B-001".into(),
+            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            rooms,
+            BookingStatus::Requested,
+            participants,
+            event_date(),
+            t(10, 0),
+            t(12, 0),
+            requested_at(),
+        )
+    }
+
+    #[test]
+    fn booking_can_hold_several_rooms() {
+        let b = try_rooms(vec![amphi(), salle_101()], 10).unwrap();
+        assert_eq!(b.get_rooms().len(), 2);
+    }
+
+    #[test]
+    fn booking_without_room_is_rejected() {
+        assert!(matches!(try_rooms(vec![], 10), Err(BookingError::NoRoomSelected)));
+    }
+
+    #[test]
+    fn booking_with_same_room_twice_is_rejected() {
+        let result = try_rooms(vec![salle_101(), salle_101()], 10);
+        assert!(matches!(result, Err(BookingError::DuplicateRoom(id)) if id == "R-101"));
+    }
+
+    #[test]
+    fn r2_capacity_is_the_sum_of_all_rooms() {
+        // 100 (amphi) + 30 (salle 101) = 130 places
+        assert!(try_rooms(vec![amphi(), salle_101()], 130).is_ok());
+        assert!(matches!(
+            try_rooms(vec![amphi(), salle_101()], 131),
+            Err(BookingError::ParticipantsSmallerThanRoomCapacity)
+        ));
+    }
+
+    #[test]
+    fn r3_conflict_if_one_room_is_shared() {
+        let existing = vec![booking("B-000", salle_101(), BookingStatus::Approved, t(10, 0), t(12, 0))];
+        let new = try_rooms(vec![amphi(), salle_101()], 10).unwrap();
+
+        assert!(matches!(new.ensure_no_conflict(&existing), Err(BookingError::OverlapReservation)));
+    }
+
+    #[test]
+    fn r5_auto_validate_only_if_all_rooms_are_standard() {
+        let mut with_amphi = try_rooms(vec![amphi(), salle_101()], 10).unwrap();
+        with_amphi.auto_validate();
+        assert_eq!(*with_amphi.get_status(), BookingStatus::Requested);
+
+        let mut standard_only = try_rooms(vec![salle_101()], 10).unwrap();
+        standard_only.auto_validate();
+        assert_eq!(*standard_only.get_status(), BookingStatus::Approved);
+    }
+
+    // ---------- disponibilité des salles ----------
+
+    fn approved_booking() -> Booking {
+        let mut b = try_rooms(vec![amphi(), salle_101()], 10).unwrap();
+        b.approve();
+        b
+    }
+
+    fn all_free(b: &Booking) -> bool {
+        b.get_rooms().iter().all(|r| r.is_free())
+    }
+
+    fn none_free(b: &Booking) -> bool {
+        b.get_rooms().iter().all(|r| !r.is_free())
+    }
+
+    #[test]
+    fn approving_marks_all_rooms_as_occupied() {
+        let b = approved_booking();
+        assert!(none_free(&b));
+    }
+
+    #[test]
+    fn rooms_are_released_when_event_is_over() {
+        let mut b = approved_booking();
+        b.check_in(event_date().and_time(t(10, 5))).unwrap();
+
+        b.update_room_availability(event_date().and_time(t(12, 0)));
+
+        assert!(all_free(&b));
+        assert_eq!(*b.get_status(), BookingStatus::Approved);
+    }
+
+    #[test]
+    fn rooms_stay_occupied_during_event_after_check_in() {
+        let mut b = approved_booking();
+        b.check_in(event_date().and_time(t(10, 5))).unwrap();
+
+        b.update_room_availability(event_date().and_time(t(11, 0)));
+
+        assert!(none_free(&b));
+    }
+
+    #[test]
+    fn no_check_in_after_15_min_releases_rooms() {
+        let mut b = approved_booking();
+
+        b.update_room_availability(event_date().and_time(t(10, 16)));
+
+        assert!(all_free(&b));
+        assert_eq!(*b.get_status(), BookingStatus::NoShow);
+        assert!(!b.is_checked_in());
+    }
+
+    #[test]
+    fn rooms_stay_occupied_within_15_min_grace_period() {
+        let mut b = approved_booking();
+
+        b.update_room_availability(event_date().and_time(t(10, 15)));
+
+        assert!(none_free(&b));
+        assert_eq!(*b.get_status(), BookingStatus::Approved);
+    }
+
+    #[test]
+    fn cancelling_an_approved_booking_releases_rooms() {
+        let mut b = approved_booking();
+
+        b.cancel(event_date().and_time(t(7, 0))).unwrap();
+
+        assert!(all_free(&b));
+    }
+
+    // ---------- check-in ----------
+
+    #[test]
+    fn check_in_within_15_min_succeeds() {
+        let mut b = approved_booking();
+
+        b.check_in(event_date().and_time(t(10, 15))).unwrap();
+
+        assert!(b.is_checked_in());
+    }
+
+    #[test]
+    fn check_in_after_15_min_is_rejected() {
+        let mut b = approved_booking();
+
+        let result = b.check_in(event_date().and_time(t(10, 16)));
+
+        assert!(matches!(result, Err(BookingError::CheckInTooLate)));
+        assert!(!b.is_checked_in());
+    }
+
+    #[test]
+    fn check_in_before_event_start_is_rejected() {
+        let mut b = approved_booking();
+
+        let result = b.check_in(event_date().and_time(t(9, 59)));
+
+        assert!(matches!(result, Err(BookingError::CheckInTooEarly)));
+    }
+
+    #[test]
+    fn check_in_on_non_approved_booking_is_rejected() {
+        let mut b = try_rooms(vec![amphi()], 10).unwrap();
+
+        let result = b.check_in(event_date().and_time(t(10, 0)));
+
+        assert!(matches!(result, Err(BookingError::CheckInNotApproved(BookingStatus::Requested))));
+    }
+
+    #[test]
+    fn check_in_twice_is_rejected() {
+        let mut b = approved_booking();
+        b.check_in(event_date().and_time(t(10, 0))).unwrap();
+
+        let result = b.check_in(event_date().and_time(t(10, 5)));
+
+        assert!(matches!(result, Err(BookingError::AlreadyCheckedIn)));
     }
 }

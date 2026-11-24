@@ -42,6 +42,22 @@ impl Room {
     pub fn get_kind(&self) -> RoomType {
         return self.kind;
     }
+
+    pub fn get_capacity(&self) -> u8 {
+        self.capacity
+    }
+
+    pub fn is_free(&self) -> bool {
+        self.is_free
+    }
+
+    pub fn occupy(&mut self) {
+        self.is_free = false;
+    }
+
+    pub fn release(&mut self) {
+        self.is_free = true;
+    }
 }
 
 #[cfg(test)]
