@@ -1,27 +1,30 @@
-use crate::{application::ports::{RepositoryError, UserRepository}, domain::user::User};
+use std::sync::RwLock;
+
+use super::{read, upsert, write};
+use crate::{
+    application::ports::{RepositoryError, UserRepository},
+    domain::user::User,
+};
 
 /// Utilisateurs en mémoire.
 #[derive(Default)]
 pub struct InMemoryUserRepository {
-    users: Vec<User>,
+    users: RwLock<Vec<User>>,
 }
 
 impl InMemoryUserRepository {
     pub fn with(users: Vec<User>) -> Self {
-        Self { users }
+        Self { users: RwLock::new(users) }
     }
 }
 
 impl UserRepository for InMemoryUserRepository {
-    fn find_by_id(&self, id: &str) -> Result<Option<User>, RepositoryError> {
-        Ok(self.users.iter().find(|u| u.get_id() == id).cloned())
+    async fn find_by_id(&self, id: &str) -> Result<Option<User>, RepositoryError> {
+        Ok(read(&self.users)?.iter().find(|u| u.get_id() == id).cloned())
     }
 
-    fn save(&mut self, user: User) -> Result<(), RepositoryError> {
-        match self.users.iter_mut().find(|u| u.get_id() == user.get_id()) {
-            Some(existing) => *existing = user,
-            None => self.users.push(user),
-        }
+    async fn save(&self, user: User) -> Result<(), RepositoryError> {
+        upsert(&mut *write(&self.users)?, user, |a, b| a.get_id() == b.get_id());
         Ok(())
     }
 }

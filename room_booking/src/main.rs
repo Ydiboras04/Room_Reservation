@@ -1,95 +1,69 @@
 //! Point d'entrée : branche les adaptateurs (infrastructure) sur les use cases
-//! de la bibliothèque `room_booking`. Aucune logique métier ici.
+//! et démarre l'API HTTP. Aucune logique métier ici.
 //!
-//! Pour l'instant, déroule un scénario de démonstration avec des dépôts en mémoire.
+//! Variables d'environnement :
+//! - `ADDR` : adresse d'écoute (défaut `127.0.0.1:3000`).
 
-use chrono::{Days, NaiveTime};
+use std::{sync::Arc, time::Duration};
 
 use room_booking::{
-    application::{
-        ports::Clock,
-        use_cases::{
-            run_scheduled_checks::run_scheduled_checks,
-            submit_booking::{SubmitBookingCommand, submit_booking},
-            validate_booking::validate_booking,
-        },
-    },
     domain::{
         room::{Room, RoomType},
-        system::SubmissionOutcome,
         user::{User, UserRole},
     },
     infrastructure::{
         ConsoleNotifier, SystemClock,
+        http::router,
         in_memory::{InMemoryBookingRepository, InMemoryRoomRepository, InMemoryUserRepository},
+        scheduler::spawn_scheduled_checks,
+        state::{AppState, InMemory},
     },
 };
+use tokio::net::TcpListener;
 
-fn main() {
-    println!("Room Reservation Application\n");
+/// Fréquence des contrôles périodiques (rappels, expirations, no-shows, fins d'événement).
+const SCHEDULED_CHECKS_PERIOD: Duration = Duration::from_secs(60);
 
-    // ---------- branchement des adaptateurs ----------
-    let clock = SystemClock;
-    let notifier = ConsoleNotifier;
-    let users = InMemoryUserRepository::with(vec![
-        User::new("A-001".into(), "Alice".into(), UserRole::Applicant),
-        User::new("RESP-001".into(), "Responsable".into(), UserRole::Responsible),
-    ]);
-    let rooms = InMemoryRoomRepository::with(vec![
-        Room::new("R-101".into(), "Salle 101".into(), 30, RoomType::Standard, true).expect("salle valide"),
-        Room::new("R-001".into(), "Amphi A".into(), 100, RoomType::Amphi, true).expect("salle valide"),
-    ]);
-    let mut bookings = InMemoryBookingRepository::default();
+#[tokio::main]
+async fn main() {
+    let state = Arc::new(AppState::<InMemory>::new(
+        seed_users(),
+        seed_rooms(),
+        InMemoryBookingRepository::default(),
+        ConsoleNotifier,
+        SystemClock,
+    ));
 
-    // Événement dans 2 jours : respecte R4 (≥ 24h, ≤ 30 jours).
-    let event_date = clock.now().date() + Days::new(2);
-    let at = |h: u32| NaiveTime::from_hms_opt(h, 0, 0).expect("heure valide");
-    let command = |id: &str, room: &str, participants: u8, start: u32, end: u32| SubmitBookingCommand {
-        id: id.into(),
-        applicant_id: "A-001".into(),
-        room_ids: vec![room.into()],
-        participants,
-        event_date,
-        event_start: at(start),
-        event_end: at(end),
-    };
+    spawn_scheduled_checks(state.clone(), SCHEDULED_CHECKS_PERIOD);
 
-    // ---------- scénario ----------
-    println!("1. Alice réserve la salle 101 (standard) de 10h à 11h");
-    report(submit_booking(command("B-1", "R-101", 20, 10, 11), &users, &rooms, &mut bookings, &clock, &notifier));
+    let addr = std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let listener = TcpListener::bind(&addr)
+        .await
+        .unwrap_or_else(|error| panic!("impossible d'écouter sur {addr} : {error}"));
+    println!("API de réservation à l'écoute sur http://{addr}");
 
-    println!("\n2. Alice redemande la salle 101 de 10h à 11h (conflit R3)");
-    report(submit_booking(command("B-2", "R-101", 20, 10, 11), &users, &rooms, &mut bookings, &clock, &notifier));
-
-    println!("\n3. Alice demande 40 places en salle 101 (capacité 30, R2)");
-    report(submit_booking(command("B-3", "R-101", 40, 14, 15), &users, &rooms, &mut bookings, &clock, &notifier));
-
-    println!("\n4. Alice réserve l'amphi A de 14h à 16h (validation requise, R5)");
-    report(submit_booking(command("B-4", "R-001", 80, 14, 16), &users, &rooms, &mut bookings, &clock, &notifier));
-
-    println!("\n5. Alice essaie de valider sa propre demande");
-    match validate_booking("B-4", "A-001", &users, &mut bookings, &clock, &notifier) {
-        Ok(_) => println!("  ✅ validée"),
-        Err(error) => println!("  ❌ {error}"),
-    }
-
-    println!("\n6. Le responsable valide la demande");
-    match validate_booking("B-4", "RESP-001", &users, &mut bookings, &clock, &notifier) {
-        Ok(_) => println!("  ✅ validée"),
-        Err(error) => println!("  ❌ {error}"),
-    }
-
-    println!("\n7. Contrôles périodiques");
-    match run_scheduled_checks(&mut bookings, &clock, &notifier) {
-        Ok(checks) => println!("  {checks:?}"),
-        Err(error) => println!("  ❌ {error}"),
-    }
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            println!("\narrêt du serveur");
+        })
+        .await
+        .expect("le serveur HTTP s'est arrêté sur une erreur");
 }
 
-fn report<E: std::fmt::Display>(result: Result<SubmissionOutcome, E>) {
-    match result {
-        Ok(SubmissionOutcome::Confirmed(b)) => println!("  ✅ {} confirmée", b.get_id()),
-        Ok(SubmissionOutcome::PendingApproval(b)) => println!("  ⏳ {} en attente de validation", b.get_id()),
-        Err(error) => println!("  ❌ {error}"),
-    }
+/// Données de départ : les dépôts sont en mémoire, tout est perdu à l'arrêt.
+fn seed_users() -> InMemoryUserRepository {
+    InMemoryUserRepository::with(vec![
+        User::new("A-001".into(), "Alice".into(), UserRole::Applicant),
+        User::new("A-002".into(), "Bob".into(), UserRole::Applicant),
+        User::new("RESP-001".into(), "Responsable".into(), UserRole::Responsible),
+    ])
+}
+
+fn seed_rooms() -> InMemoryRoomRepository {
+    InMemoryRoomRepository::with(vec![
+        Room::new("R-101".into(), "Salle 101".into(), 30, RoomType::Standard, true).expect("salle valide"),
+        Room::new("R-102".into(), "Salle 102".into(), 20, RoomType::Standard, true).expect("salle valide"),
+        Room::new("R-001".into(), "Amphi A".into(), 100, RoomType::Amphi, true).expect("salle valide"),
+    ])
 }

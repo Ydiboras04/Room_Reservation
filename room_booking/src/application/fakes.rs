@@ -2,7 +2,7 @@
 //! Les dépôts en mémoire vivent dans `infrastructure::in_memory` (ils servent aussi à
 //! l'exécution) ; ils sont réexportés ici pour que les tests n'aient qu'un seul import.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use chrono::{NaiveDate, NaiveDateTime};
 
@@ -24,29 +24,29 @@ fn storage_down() -> RepositoryError {
 }
 
 impl BookingRepository for FailingRepository {
-    fn find_by_id(&self, _id: &str) -> Result<Option<Booking>, RepositoryError> {
+    async fn find_by_id(&self, _id: &str) -> Result<Option<Booking>, RepositoryError> {
         Err(storage_down())
     }
 
-    fn find_by_date(&self, _date: NaiveDate) -> Result<Vec<Booking>, RepositoryError> {
+    async fn find_by_date(&self, _date: NaiveDate) -> Result<Vec<Booking>, RepositoryError> {
         Err(storage_down())
     }
 
-    fn find_active(&self) -> Result<Vec<Booking>, RepositoryError> {
+    async fn find_active(&self) -> Result<Vec<Booking>, RepositoryError> {
         Err(storage_down())
     }
 
-    fn save(&mut self, _booking: Booking) -> Result<(), RepositoryError> {
+    async fn save(&self, _booking: Booking) -> Result<(), RepositoryError> {
         Err(storage_down())
     }
 }
 
 impl UserRepository for FailingRepository {
-    fn find_by_id(&self, _id: &str) -> Result<Option<User>, RepositoryError> {
+    async fn find_by_id(&self, _id: &str) -> Result<Option<User>, RepositoryError> {
         Err(storage_down())
     }
 
-    fn save(&mut self, _user: User) -> Result<(), RepositoryError> {
+    async fn save(&self, _user: User) -> Result<(), RepositoryError> {
         Err(storage_down())
     }
 }
@@ -72,47 +72,49 @@ pub enum Notification {
 }
 
 /// Enregistre les notifications au lieu de les envoyer.
-/// `RefCell` car les méthodes du trait prennent `&self`.
+/// `Mutex` car les méthodes du trait prennent `&self` et le notifier doit être `Sync`.
 #[derive(Default)]
 pub struct FakeNotifier {
-    sent: RefCell<Vec<Notification>>,
+    sent: Mutex<Vec<Notification>>,
 }
 
 impl FakeNotifier {
+    fn push(&self, notification: Notification) {
+        self.sent.lock().unwrap().push(notification);
+    }
+
     pub fn sent(&self) -> Vec<Notification> {
-        self.sent.borrow().clone()
+        self.sent.lock().unwrap().clone()
     }
 }
 
 impl Notifier for FakeNotifier {
-    fn send_reminder(&self, booking: &Booking) {
-        self.sent.borrow_mut().push(Notification::Reminder(booking.get_id().into()));
+    async fn send_reminder(&self, booking: &Booking) {
+        self.push(Notification::Reminder(booking.get_id().into()));
     }
 
-    fn notify_rejected(&self, booking_id: &str, reason: &str) {
-        self.sent.borrow_mut().push(Notification::Rejected(booking_id.into(), reason.into()));
+    async fn notify_rejected(&self, booking_id: &str, reason: &str) {
+        self.push(Notification::Rejected(booking_id.into(), reason.into()));
     }
 
-    fn notify_slot_unavailable(&self, booking_id: &str, alternatives: &[TimeSlot]) {
-        self.sent
-            .borrow_mut()
-            .push(Notification::SlotUnavailable(booking_id.into(), alternatives.to_vec()));
+    async fn notify_slot_unavailable(&self, booking_id: &str, alternatives: &[TimeSlot]) {
+        self.push(Notification::SlotUnavailable(booking_id.into(), alternatives.to_vec()));
     }
 
-    fn notify_confirmed(&self, booking: &Booking) {
-        self.sent.borrow_mut().push(Notification::Confirmed(booking.get_id().into()));
+    async fn notify_confirmed(&self, booking: &Booking) {
+        self.push(Notification::Confirmed(booking.get_id().into()));
     }
 
-    fn notify_pending_approval(&self, booking: &Booking) {
-        self.sent.borrow_mut().push(Notification::PendingApproval(booking.get_id().into()));
+    async fn notify_pending_approval(&self, booking: &Booking) {
+        self.push(Notification::PendingApproval(booking.get_id().into()));
     }
 
-    fn notify_declined(&self, booking: &Booking) {
-        self.sent.borrow_mut().push(Notification::Declined(booking.get_id().into()));
+    async fn notify_declined(&self, booking: &Booking) {
+        self.push(Notification::Declined(booking.get_id().into()));
     }
 
-    fn notify_cancelled(&self, booking: &Booking) {
-        self.sent.borrow_mut().push(Notification::Cancelled(booking.get_id().into()));
+    async fn notify_cancelled(&self, booking: &Booking) {
+        self.push(Notification::Cancelled(booking.get_id().into()));
     }
 }
 

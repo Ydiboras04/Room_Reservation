@@ -1,31 +1,34 @@
-use crate::{application::ports::{RepositoryError, RoomRepository}, domain::room::Room};
+use std::sync::RwLock;
+
+use super::{read, upsert, write};
+use crate::{
+    application::ports::{RepositoryError, RoomRepository},
+    domain::room::Room,
+};
 
 /// Catalogue de salles en mémoire.
 #[derive(Default)]
 pub struct InMemoryRoomRepository {
-    rooms: Vec<Room>,
+    rooms: RwLock<Vec<Room>>,
 }
 
 impl InMemoryRoomRepository {
     pub fn with(rooms: Vec<Room>) -> Self {
-        Self { rooms }
+        Self { rooms: RwLock::new(rooms) }
     }
 }
 
 impl RoomRepository for InMemoryRoomRepository {
-    fn find_by_id(&self, id: &str) -> Result<Option<Room>, RepositoryError> {
-        Ok(self.rooms.iter().find(|r| r.get_id() == id).cloned())
+    async fn find_by_id(&self, id: &str) -> Result<Option<Room>, RepositoryError> {
+        Ok(read(&self.rooms)?.iter().find(|r| r.get_id() == id).cloned())
     }
 
-    fn find_all(&self) -> Result<Vec<Room>, RepositoryError> {
-        Ok(self.rooms.clone())
+    async fn find_all(&self) -> Result<Vec<Room>, RepositoryError> {
+        Ok(read(&self.rooms)?.clone())
     }
 
-    fn save(&mut self, room: Room) -> Result<(), RepositoryError> {
-        match self.rooms.iter_mut().find(|r| r.get_id() == room.get_id()) {
-            Some(existing) => *existing = room,
-            None => self.rooms.push(room),
-        }
+    async fn save(&self, room: Room) -> Result<(), RepositoryError> {
+        upsert(&mut *write(&self.rooms)?, room, |a, b| a.get_id() == b.get_id());
         Ok(())
     }
 }

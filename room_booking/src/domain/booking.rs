@@ -171,6 +171,14 @@ impl Booking {
         &self.rooms
     }
 
+    pub fn get_participants(&self) -> u8 {
+        self.participants
+    }
+
+    pub fn get_requested_at(&self) -> NaiveDateTime {
+        self.requested_at
+    }
+
     pub fn is_expired(&self) -> bool {
         self.expired
     }

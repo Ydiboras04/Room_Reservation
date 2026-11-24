@@ -1,0 +1,1127 @@
+{
+  "info": {
+    "name": "Room Booking API",
+    "description": "API de réservation de salles (axum).\n\nLancer le serveur : `cargo run` (écoute sur 127.0.0.1:3000, variable `ADDR` pour changer).\nLancer la collection : `postman collection run postman/room_booking.postman_collection.json`.\n\nLes dossiers forment un scénario : exécutez-les dans l'ordre. Les ids créés sont stockés dans les variables de collection, et le dernier dossier libère les créneaux pour pouvoir relancer.\n\nUtilisateurs de départ : A-001, A-002 (demandeurs), RESP-001 (responsable). Salles : R-101 (30 places), R-102 (20), R-001 (amphi, 100).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Dates calculées à chaque requête, en heure locale (celle du serveur en local).",
+          "// eventDate = aujourd'hui + 3 jours : respecte R4 (au moins 24h, au plus 30 jours à l'avance).",
+          "const fmt = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');",
+          "const today = new Date();",
+          "const event = new Date(today); event.setDate(today.getDate() + 3);",
+          "pm.collectionVariables.set('today', fmt(today));",
+          "pm.collectionVariables.set('eventDate', fmt(event));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "today",
+      "value": ""
+    },
+    {
+      "key": "eventDate",
+      "value": ""
+    },
+    {
+      "key": "standardId",
+      "value": ""
+    },
+    {
+      "key": "amphiId",
+      "value": ""
+    },
+    {
+      "key": "amphiToDeclineId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Catalogue",
+      "item": [
+        {
+          "name": "Lister les salles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms"
+              ]
+            },
+            "description": "Public : pas d'en-tête X-User-Id nécessaire."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "const rooms = pm.response.json();",
+                  "pm.test(\"liste non vide\", () => pm.expect(rooms).to.be.an(\"array\").that.is.not.empty);",
+                  "pm.test(\"format d'une salle\", () => rooms.forEach(r => pm.expect(r).to.have.all.keys(\"id\", \"name\", \"capacity\", \"kind\")));",
+                  "pm.test(\"contient l'amphi R-001\", () => pm.expect(rooms.find(r => r.id === \"R-001\").kind).to.eql(\"amphi\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Salle standard (confirmée directement)",
+      "item": [
+        {
+          "name": "Réserver la salle 101",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-101\"\n  ],\n  \"participants\": 20,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"confirmée\", () => { pm.expect(body.outcome).to.eql(\"confirmed\"); pm.expect(body.booking.status).to.eql(\"approved\"); });",
+                  "pm.test(\"en-tête Location\", () => pm.expect(pm.response.headers.get(\"Location\")).to.eql(`/bookings/${body.booking.id}`));",
+                  "pm.collectionVariables.set(\"standardId\", body.booking.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consulter (demandeur)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{standardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{standardId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"bonne réservation\", () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"standardId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consulter (autre demandeur) → 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-002"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{standardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{standardId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"erreur not_booking_owner\", () => pm.expect(pm.response.json().error).to.eql(\"not_booking_owner\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Même créneau par un autre → 409 + alternatives",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-002"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-101\"\n  ],\n  \"participants\": 20,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"erreur slot_unavailable\", () => pm.expect(pm.response.json().error).to.eql(\"slot_unavailable\"));",
+                  "pm.test(\"créneaux alternatifs proposés\", () => pm.expect(pm.response.json().alternatives).to.be.an(\"array\").that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Annuler (autre demandeur) → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-002"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{standardId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{standardId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"erreur not_booking_owner\", () => pm.expect(pm.response.json().error).to.eql(\"not_booking_owner\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Annuler (demandeur)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{standardId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{standardId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"annulée\", () => pm.expect(pm.response.json().status).to.eql(\"cancelled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Amphithéâtre (validation du responsable)",
+      "item": [
+        {
+          "name": "Réserver l'amphi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-001\"\n  ],\n  \"participants\": 80,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"14:00\",\n  \"event_end\": \"16:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"en attente de validation\", () => { pm.expect(body.outcome).to.eql(\"pending_approval\"); pm.expect(body.booking.status).to.eql(\"requested\"); });",
+                  "pm.collectionVariables.set(\"amphiId\", body.booking.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Valider (demandeur) → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}",
+                "validate"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"erreur missing_role\", () => pm.expect(pm.response.json().error).to.eql(\"missing_role\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consulter (responsable)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "RESP-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Valider (responsable)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "RESP-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}",
+                "validate"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"approuvée\", () => pm.expect(pm.response.json().status).to.eql(\"approved\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Valider à nouveau → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "RESP-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}",
+                "validate"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"erreur booking_already_accepted\", () => pm.expect(pm.response.json().error).to.eql(\"booking_already_accepted\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check-in avant le début → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}/check-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}",
+                "check-in"
+              ]
+            },
+            "description": "Le check-in n'est ouvert qu'entre le début et début + 15 min : impossible à tester ici avec l'heure réelle."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"erreur check_in_too_early\", () => pm.expect(pm.response.json().error).to.eql(\"check_in_too_early\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Réserver l'amphi (autre créneau)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-002"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-001\"\n  ],\n  \"participants\": 60,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"09:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"amphiToDeclineId\", pm.response.json().booking.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refuser (responsable)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "RESP-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiToDeclineId}}/decline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiToDeclineId}}",
+                "decline"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"refusée\", () => pm.expect(pm.response.json().status).to.eql(\"declined\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Erreurs",
+      "item": [
+        {
+          "name": "Sans en-tête X-User-Id → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-101\"\n  ],\n  \"participants\": 20,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"erreur missing_user\", () => pm.expect(pm.response.json().error).to.eql(\"missing_user\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Utilisateur inconnu → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "U-404"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-101\"\n  ],\n  \"participants\": 20,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"erreur unknown_user\", () => pm.expect(pm.response.json().error).to.eql(\"unknown_user\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Capacité dépassée (R2) → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-102\"\n  ],\n  \"participants\": 30,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur capacity_exceeded\", () => pm.expect(pm.response.json().error).to.eql(\"capacity_exceeded\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hors horaires 7h–19h (R1) → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-102\"\n  ],\n  \"participants\": 10,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"18:00\",\n  \"event_end\": \"20:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur invalid_hours_or_duration\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_hours_or_duration\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Moins de 24h à l'avance (R4) → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-102\"\n  ],\n  \"participants\": 10,\n  \"event_date\": \"{{today}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur booking_window_violated\", () => pm.expect(pm.response.json().error).to.eql(\"booking_window_violated\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Salle inconnue → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-999\"\n  ],\n  \"participants\": 10,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur room_not_found\", () => pm.expect(pm.response.json().error).to.eql(\"room_not_found\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Champ inconnu → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "description": "Le statut, la capacité, etc. viennent du serveur : le client ne peut pas les imposer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\n    \"R-102\"\n  ],\n  \"participants\": 10,\n  \"event_date\": \"{{eventDate}}\",\n  \"event_start\": \"10:00\",\n  \"event_end\": \"11:00\",\n  \"status\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur invalid_body\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_body\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Corps incomplet → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_ids\": [\"R-102\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"erreur invalid_body\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_body\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON invalide → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"erreur invalid_body\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_body\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Réservation inconnue → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/inexistante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "inexistante"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"erreur booking_not_found\", () => pm.expect(pm.response.json().error).to.eql(\"booking_not_found\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Nettoyage",
+      "item": [
+        {
+          "name": "Annuler l'amphi validé",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "A-001"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{amphiId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{amphiId}}",
+                "cancel"
+              ]
+            },
+            "description": "Libère le créneau : la collection peut être relancée sur le même serveur sans conflit."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"statut 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"annulée\", () => pm.expect(pm.response.json().status).to.eql(\"cancelled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

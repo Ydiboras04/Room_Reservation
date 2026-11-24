@@ -39,6 +39,10 @@ impl Room {
         &self.id
     }
 
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+
     pub fn get_kind(&self) -> RoomType {
         return self.kind;
     }

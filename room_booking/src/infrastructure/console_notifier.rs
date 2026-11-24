@@ -25,15 +25,15 @@ fn describe(booking: &Booking) -> String {
 }
 
 impl Notifier for ConsoleNotifier {
-    fn send_reminder(&self, booking: &Booking) {
+    async fn send_reminder(&self, booking: &Booking) {
         self.print(format!("Rappel : votre réservation {} commence dans moins d'1h", describe(booking)));
     }
 
-    fn notify_rejected(&self, booking_id: &str, reason: &str) {
+    async fn notify_rejected(&self, booking_id: &str, reason: &str) {
         self.print(format!("Demande {booking_id} rejetée : {reason}"));
     }
 
-    fn notify_slot_unavailable(&self, booking_id: &str, alternatives: &[TimeSlot]) {
+    async fn notify_slot_unavailable(&self, booking_id: &str, alternatives: &[TimeSlot]) {
         let slots: Vec<String> = alternatives
             .iter()
             .map(|s| format!("{}–{}", s.start.format("%H:%M"), s.end.format("%H:%M")))
@@ -45,19 +45,19 @@ impl Notifier for ConsoleNotifier {
         }
     }
 
-    fn notify_confirmed(&self, booking: &Booking) {
+    async fn notify_confirmed(&self, booking: &Booking) {
         self.print(format!("Réservation {} confirmée", describe(booking)));
     }
 
-    fn notify_pending_approval(&self, booking: &Booking) {
+    async fn notify_pending_approval(&self, booking: &Booking) {
         self.print(format!("Réservation {} en attente de validation par le responsable", describe(booking)));
     }
 
-    fn notify_declined(&self, booking: &Booking) {
+    async fn notify_declined(&self, booking: &Booking) {
         self.print(format!("Réservation {} refusée par le responsable", describe(booking)));
     }
 
-    fn notify_cancelled(&self, booking: &Booking) {
+    async fn notify_cancelled(&self, booking: &Booking) {
         self.print(format!("Réservation {} annulée, créneau libéré", describe(booking)));
     }
 }
