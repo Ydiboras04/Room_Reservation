@@ -1,0 +1,10 @@
+# Rust build output
+target/
+
+# Editor / tooling
+.vscode/
+.idea/
+.github/
+
+# OS
+.DS_Store
