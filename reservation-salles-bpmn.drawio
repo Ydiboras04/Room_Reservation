@@ -1,0 +1,169 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="bpmn-reservation" name="Réservation de salle">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2700" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== POOL & LANES ===== -->
+        <mxCell id="pool" value="Processus de réservation de salle" style="swimlane;html=1;horizontal=0;startSize=30;fillColor=#f5f5f5;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="2560" height="900" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" value="Demandeur" style="swimlane;html=1;horizontal=0;startSize=30;fillColor=#dae8fc;swimlaneFillColor=#ffffff;" vertex="1" parent="pool">
+          <mxGeometry x="30" y="0" width="2530" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="l2" value="Système" style="swimlane;html=1;horizontal=0;startSize=30;fillColor=#d5e8d4;swimlaneFillColor=#ffffff;" vertex="1" parent="pool">
+          <mxGeometry x="30" y="200" width="2530" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="l3" value="Responsable des salles" style="swimlane;html=1;horizontal=0;startSize=30;fillColor=#ffe6cc;swimlaneFillColor=#ffffff;" vertex="1" parent="pool">
+          <mxGeometry x="30" y="680" width="2530" height="220" as="geometry" />
+        </mxCell>
+
+        <!-- ===== LANE DEMANDEUR ===== -->
+        <mxCell id="s1" value="Besoin d'une salle" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=standard;symbol=general;" vertex="1" parent="l1">
+          <mxGeometry x="50" y="80" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="Choisir la salle et le créneau" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=user;" vertex="1" parent="l1">
+          <mxGeometry x="130" y="65" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="Soumettre la demande" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=user;" vertex="1" parent="l1">
+          <mxGeometry x="310" y="65" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ===== LANE SYSTEME ===== -->
+        <mxCell id="t3" value="Vérifier les règles R1, R2, R4" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=businessRule;" vertex="1" parent="l2">
+          <mxGeometry x="490" y="65" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g1" value="Demande valide ?" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="l2">
+          <mxGeometry x="690" y="75" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="Notifier l'erreur" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=send;" vertex="1" parent="l2">
+          <mxGeometry x="650" y="195" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="Rejetée" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l2">
+          <mxGeometry x="830" y="210" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="Vérifier les conflits (R3)" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=service;" vertex="1" parent="l2">
+          <mxGeometry x="790" y="65" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" value="Créneau libre ?" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="l2">
+          <mxGeometry x="990" y="75" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" value="Proposer d'autres créneaux" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=send;" vertex="1" parent="l2">
+          <mxGeometry x="945" y="195" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="Indisponible" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l2">
+          <mxGeometry x="995" y="320" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" value="Type de salle ?" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="l2">
+          <mxGeometry x="1110" y="75" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" value="" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="l2">
+          <mxGeometry x="1350" y="75" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t9" value="Confirmer et bloquer le créneau" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=service;" vertex="1" parent="l2">
+          <mxGeometry x="1440" y="65" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ie1" value="1 h avant&lt;br&gt;le début" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=catching;symbol=timer;" vertex="1" parent="l2">
+          <mxGeometry x="1640" y="80" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t10" value="Envoyer un rappel" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=send;" vertex="1" parent="l2">
+          <mxGeometry x="1720" y="65" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g6" value="En attente&lt;br&gt;de présence" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=catching;symbol=multiple;" vertex="1" parent="l2">
+          <mxGeometry x="1900" y="75" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ie2" value="Check-in reçu" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=catching;symbol=message;" vertex="1" parent="l2">
+          <mxGeometry x="2000" y="80" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="Salle utilisée" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l2">
+          <mxGeometry x="2100" y="80" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ie3" value="Début + 15 min&lt;br&gt;sans check-in" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=catching;symbol=timer;" vertex="1" parent="l2">
+          <mxGeometry x="2000" y="210" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t11" value="Libérer la salle" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=service;" vertex="1" parent="l2">
+          <mxGeometry x="2080" y="195" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="Non présenté" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l2">
+          <mxGeometry x="2260" y="210" width="40" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Sous-processus événementiel : Annulation -->
+        <mxCell id="sp" value="Sous-processus événementiel : Annulation" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;dashed=1;dashPattern=1 3;container=1;collapsible=0;verticalAlign=top;align=left;spacingLeft=10;fontStyle=2;fillColor=#fafafa;" vertex="1" parent="l2">
+          <mxGeometry x="1420" y="295" width="860" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="sps" value="Demande&lt;br&gt;d'annulation" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#fafafa;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=standard;symbol=message;" vertex="1" parent="sp">
+          <mxGeometry x="30" y="60" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="spt1" value="Vérifier le délai (R6)" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=businessRule;" vertex="1" parent="sp">
+          <mxGeometry x="110" y="45" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="spg" value="≥ 2 h avant ?" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#fafafa;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="sp">
+          <mxGeometry x="300" y="55" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="spt2" value="Libérer le créneau et notifier" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=service;" vertex="1" parent="sp">
+          <mxGeometry x="400" y="45" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="spe1" value="Annulée" style="shape=mxgraph.bpmn.event;html=1;labelPosition=right;verticalLabelPosition=middle;align=left;verticalAlign=middle;spacingLeft=4;labelBackgroundColor=#fafafa;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="sp">
+          <mxGeometry x="610" y="60" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="spe2" value="Annulation refusée" style="shape=mxgraph.bpmn.event;html=1;labelPosition=right;verticalLabelPosition=middle;align=left;verticalAlign=middle;spacingLeft=4;labelBackgroundColor=#fafafa;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="sp">
+          <mxGeometry x="610" y="120" width="40" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== LANE RESPONSABLE ===== -->
+        <mxCell id="t7" value="Valider la demande (amphithéâtre)" style="shape=mxgraph.bpmn.task;whiteSpace=wrap;rectStyle=rounded;size=10;html=1;taskMarker=user;container=1;collapsible=0;" vertex="1" parent="l3">
+          <mxGeometry x="1065" y="55" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="bt" value="24 h sans réponse" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=boundInt;symbol=timer;" vertex="1" parent="t7">
+          <mxGeometry x="90" y="50" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="Expirée" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l3">
+          <mxGeometry x="1240" y="140" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" value="Approuvée ?" style="shape=mxgraph.bpmn.gateway2;html=1;verticalLabelPosition=top;labelBackgroundColor=#ffffff;verticalAlign=bottom;align=center;perimeter=rhombusPerimeter;outlineConnect=0;outline=none;symbol=none;gwType=exclusive;" vertex="1" parent="l3">
+          <mxGeometry x="1290" y="65" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="Refusée" style="shape=mxgraph.bpmn.event;html=1;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;align=center;perimeter=ellipsePerimeter;outlineConnect=0;aspect=fixed;outline=end;symbol=general;" vertex="1" parent="l3">
+          <mxGeometry x="1410" y="70" width="40" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== SEQUENCE FLOWS ===== -->
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="s1" target="t1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t1" target="t2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="t2" target="t3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t3" target="g1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f5" value="Oui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g1" target="t5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f6" value="Non" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="g1" target="t4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t4" target="e1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t5" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f9" value="Oui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g2" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f10" value="Non" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="g2" target="t6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="t6" target="e2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f12" value="Standard" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g3" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f13" value="Amphithéâtre" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="g3" target="t7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t7" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f15" value="Non" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g4" target="e4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f16" value="Oui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="g4" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bt" target="e3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g5" target="t9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t9" target="ie1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ie1" target="t10"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t10" target="g6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="g6" target="ie2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ie2" target="e5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="g6" target="ie3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ie3" target="t11"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="t11" target="e6"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Flux du sous-processus -->
+        <mxCell id="sf1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="sp" source="sps" target="spt1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="sf2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="sp" source="spt1" target="spg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="sf3" value="Oui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#fafafa;" edge="1" parent="sp" source="spg" target="spt2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="sf4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="sp" source="spt2" target="spe1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="sf5" value="Non" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#fafafa;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="sp" source="spg" target="spe2"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

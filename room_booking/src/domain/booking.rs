@@ -6,7 +6,8 @@ use crate::domain::applicant::Applicant;
 use crate::domain::room::{Room, RoomType};
 use crate::domain::errors::BookingError;
 
-pub const EXPIRY_DELAY_HOURS: i64 = 72;
+// Expiration : une demande sans réponse du responsable expire après 24h
+pub const EXPIRY_DELAY_HOURS: i64 = 24;
 
 // R1 : créneau valide
 pub const OPENING_HOUR: u32 = 7;
@@ -24,6 +25,9 @@ pub const MIN_CANCELLATION_HOURS: i64 = 2;
 
 // Check-in : au-delà de 15 min après le début sans check-in, les salles sont libérées
 pub const CHECK_IN_GRACE_MINUTES: i64 = 15;
+
+// Rappel envoyé au demandeur 1h avant le début
+pub const REMINDER_BEFORE_HOURS: i64 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BookingStatus {
@@ -46,6 +50,7 @@ pub struct Booking {
     event_end: NaiveTime,
     expired: bool,
     checked_in: bool,
+    reminder_sent: bool,
     requested_at: NaiveDateTime,
 }
 
@@ -58,7 +63,7 @@ impl Booking {
 
         Ok(Self{
             id, applicant, rooms, status, participants, event_date, event_start, event_end,
-            expired: false, checked_in: false, requested_at
+            expired: false, checked_in: false, reminder_sent: false, requested_at
         })
     }
 
@@ -116,8 +121,42 @@ impl Booking {
         Ok(())
     }
 
-    pub fn set_status(&mut self, status: BookingStatus) {
+    /// Privé : on passe par `approve`, `decline`, `cancel`… pour garder
+    /// le statut et la disponibilité des salles cohérents.
+    fn set_status(&mut self, status: BookingStatus) {
         self.status = status;
+    }
+
+    /// Même demande sur un autre créneau, revalidée (R1, R2, R4).
+    /// Sert à proposer des créneaux alternatifs.
+    pub fn with_slot(&self, start: NaiveTime, end: NaiveTime) -> Result<Booking, BookingError> {
+        Booking::new(
+            self.id.clone(),
+            self.applicant.clone(),
+            self.rooms.clone(),
+            self.status,
+            self.participants,
+            self.event_date,
+            start,
+            end,
+            self.requested_at,
+        )
+    }
+
+    pub fn get_id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn get_event_date(&self) -> NaiveDate {
+        self.event_date
+    }
+
+    pub fn get_event_start(&self) -> NaiveTime {
+        self.event_start
+    }
+
+    pub fn get_event_end(&self) -> NaiveTime {
+        self.event_end
     }
 
     pub fn get_status(&self) -> &BookingStatus {
@@ -159,8 +198,14 @@ impl Booking {
 
     /// Approuve la réservation et marque toutes ses salles comme occupées.
     pub fn approve(&mut self) {
-        self.status = BookingStatus::Approved;
+        self.set_status(BookingStatus::Approved);
         self.rooms.iter_mut().for_each(Room::occupy);
+    }
+
+    /// Refusée par le responsable.
+    pub fn decline(&mut self) {
+        self.set_status(BookingStatus::Declined);
+        self.release_rooms();
     }
 
     /// R5 : approuvée automatiquement seulement si toutes les salles sont standard.
@@ -215,11 +260,15 @@ impl Booking {
     }
 
     /// R6 : annulation possible seulement jusqu'à 2h avant le début.
+    /// Seule une réservation en attente ou approuvée peut être annulée.
     pub fn cancel(&mut self, now: NaiveDateTime) -> Result<(), BookingError> {
+        if !matches!(self.status, BookingStatus::Requested | BookingStatus::Approved) {
+            return Err(BookingError::CannotCancel(self.status));
+        }
         if now > self.event_start_at() - TimeDelta::hours(MIN_CANCELLATION_HOURS) {
             return Err(BookingError::AnnulationTooLate);
         }
-        self.status = BookingStatus::Cancelled;
+        self.set_status(BookingStatus::Cancelled);
         self.release_rooms();
         Ok(())
     }
@@ -243,6 +292,24 @@ impl Booking {
         Ok(())
     }
 
+    /// Le rappel est dû à partir d'1h avant le début, pour une réservation
+    /// approuvée, tant qu'il n'a pas été envoyé et que l'événement n'a pas commencé.
+    pub fn reminder_due(&self, now: NaiveDateTime) -> bool {
+        self.status == BookingStatus::Approved
+            && !self.reminder_sent
+            && now >= self.event_start_at() - TimeDelta::hours(REMINDER_BEFORE_HOURS)
+            && now < self.event_start_at()
+    }
+
+    /// À appeler par l'infrastructure une fois le rappel réellement envoyé.
+    pub fn mark_reminder_sent(&mut self) {
+        self.reminder_sent = true;
+    }
+
+    pub fn is_reminder_sent(&self) -> bool {
+        self.reminder_sent
+    }
+
     /// Met à jour la disponibilité des salles selon l'heure actuelle :
     /// - événement terminé → salles libérées ;
     /// - 15 min après le début sans check-in → `NoShow`, salles libérées.
@@ -256,7 +323,7 @@ impl Booking {
         } else if !self.checked_in
             && now > self.event_start_at() + TimeDelta::minutes(CHECK_IN_GRACE_MINUTES)
         {
-            self.status = BookingStatus::NoShow;
+            self.set_status(BookingStatus::NoShow);
             self.release_rooms();
         }
     }
@@ -275,11 +342,11 @@ pub(crate) mod tests {
 
     // ---------- helpers ----------
 
-    fn t(h: u32, m: u32) -> NaiveTime {
+    pub(crate) fn t(h: u32, m: u32) -> NaiveTime {
         NaiveTime::from_hms_opt(h, m, 0).unwrap()
     }
 
-    fn event_date() -> NaiveDate {
+    pub(crate) fn event_date() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 12, 1).unwrap()
     }
 
@@ -287,11 +354,11 @@ pub(crate) mod tests {
         NaiveDate::from_ymd_opt(2026, 11, 25).unwrap().and_hms_opt(9, 0, 0).unwrap()
     }
 
-    fn amphi() -> Room {
+    pub(crate) fn amphi() -> Room {
         Room::new("R-001".into(), "Amphi A".into(), 100, RoomType::Amphi, true).unwrap()
     }
 
-    fn salle_101() -> Room {
+    pub(crate) fn salle_101() -> Room {
         Room::new("R-101".into(), "Salle 101".into(), 30, RoomType::Standard, true).unwrap()
     }
 
@@ -310,7 +377,7 @@ pub(crate) mod tests {
         )
     }
 
-    fn booking(id: &str, room: Room, status: BookingStatus, start: NaiveTime, end: NaiveTime) -> Booking {
+    pub(crate) fn booking(id: &str, room: Room, status: BookingStatus, start: NaiveTime, end: NaiveTime) -> Booking {
         Booking::new(
             id.into(),
             Applicant::new("A-001".into(), "User1".into()).unwrap(),
@@ -449,7 +516,7 @@ pub(crate) mod tests {
     #[test]
     fn r3_expired_booking_does_not_block() {
         let mut old = booking("B-001", amphi(), BookingStatus::Requested, t(8, 0), t(10, 0));
-        old.update_expiry(requested_at() + TimeDelta::hours(72)).unwrap();
+        old.update_expiry(requested_at() + TimeDelta::hours(24)).unwrap();
         let new = booking("B-002", amphi(), BookingStatus::Requested, t(9, 30), t(10, 30));
 
         assert!(new.ensure_no_conflict(&[old]).is_ok());
@@ -540,24 +607,24 @@ pub(crate) mod tests {
         assert_eq!(*b.get_status(), BookingStatus::Cancelled);
     }
 
-    // ---------- expiration (72h) ----------
+    // ---------- expiration (24h) ----------
 
     #[test]
-    fn requested_booking_expires_after_72h() {
+    fn requested_booking_expires_after_24h() {
         let mut booking = booking_with_status(BookingStatus::Requested);
 
-        booking.update_expiry(requested_at() + TimeDelta::hours(72)).unwrap();
+        booking.update_expiry(requested_at() + TimeDelta::hours(24)).unwrap();
 
         assert!(booking.is_expired());
         assert!(matches!(booking.ensure_not_expired(), Err(BookingError::Expired)));
     }
 
     #[test]
-    fn requested_booking_does_not_expire_before_72h() {
+    fn requested_booking_does_not_expire_before_24h() {
         let mut booking = booking_with_status(BookingStatus::Requested);
 
         booking
-            .update_expiry(requested_at() + TimeDelta::hours(72) - TimeDelta::seconds(1))
+            .update_expiry(requested_at() + TimeDelta::hours(24) - TimeDelta::seconds(1))
             .unwrap();
 
         assert!(!booking.is_expired());
@@ -765,5 +832,65 @@ pub(crate) mod tests {
         let result = b.check_in(event_date().and_time(t(10, 5)));
 
         assert!(matches!(result, Err(BookingError::AlreadyCheckedIn)));
+    }
+
+    // ---------- refus ----------
+
+    #[test]
+    fn decline_sets_status_to_declined() {
+        let mut b = booking_with_status(BookingStatus::Requested);
+
+        b.decline();
+
+        assert_eq!(*b.get_status(), BookingStatus::Declined);
+        assert!(b.get_rooms().iter().all(|r| r.is_free()));
+    }
+
+    // ---------- annulation : statuts autorisés ----------
+
+    #[test]
+    fn cancelling_a_declined_booking_is_rejected() {
+        let mut b = booking_with_status(BookingStatus::Declined);
+
+        let result = b.cancel(event_date().and_time(t(7, 0)));
+
+        assert!(matches!(result, Err(BookingError::CannotCancel(BookingStatus::Declined))));
+    }
+
+    #[test]
+    fn cancelling_twice_is_rejected() {
+        let mut b = booking_with_status(BookingStatus::Approved);
+        b.cancel(event_date().and_time(t(7, 0))).unwrap();
+
+        let result = b.cancel(event_date().and_time(t(7, 30)));
+
+        assert!(matches!(result, Err(BookingError::CannotCancel(BookingStatus::Cancelled))));
+    }
+
+    // ---------- rappel 1h avant ----------
+
+    #[test]
+    fn reminder_is_due_1h_before_start() {
+        let b = approved_booking(); // 10h–12h
+
+        assert!(!b.reminder_due(event_date().and_time(t(8, 59))));
+        assert!(b.reminder_due(event_date().and_time(t(9, 0))));
+        assert!(b.reminder_due(event_date().and_time(t(9, 59))));
+        assert!(!b.reminder_due(event_date().and_time(t(10, 0))));
+    }
+
+    #[test]
+    fn reminder_is_not_due_twice() {
+        let mut b = approved_booking();
+        b.mark_reminder_sent();
+
+        assert!(!b.reminder_due(event_date().and_time(t(9, 30))));
+    }
+
+    #[test]
+    fn reminder_is_not_due_for_pending_booking() {
+        let b = booking_with_status(BookingStatus::Requested);
+
+        assert!(!b.reminder_due(event_date().and_time(t(9, 30))));
     }
 }

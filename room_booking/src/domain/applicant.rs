@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use crate::domain::booking::Booking;
 use crate::domain::errors::ApplicantError;
 
 #[derive(Debug, Clone)]
@@ -14,9 +13,5 @@ impl Applicant {
         Ok(Self{
             id, name
         })
-    }
-
-    pub fn submit_request (booking: Booking) -> Booking {
-        return booking;
     }
 }

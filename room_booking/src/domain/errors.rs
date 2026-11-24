@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
-use crate::domain::booking::BookingStatus;
+use crate::domain::{booking::BookingStatus, system::TimeSlot};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BookingError {
     #[error("l'heure de fin doit être supérieur à l'heure de début")]
     EventEndSmallerEventStart,
 
-    #[error("la demande a expiré : aucune réponse dans les 72h")]
+    #[error("la demande a expiré : aucune réponse dans les 24h")]
     Expired,
 
     #[error("la date actuelle ne peut pas être antérieure à la date de la demande")]
@@ -45,6 +45,9 @@ pub enum BookingError {
 
     #[error("le check-in a déjà été effectué")]
     AlreadyCheckedIn,
+
+    #[error("seule une réservation en attente ou approuvée peut être annulée (statut actuel : {0:?})")]
+    CannotCancel(BookingStatus),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,4 +72,15 @@ pub enum ResponsibleError {
 
     #[error(transparent)]
     Booking(#[from] BookingError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SystemError {
+    /// « Demande valide ? → Non » : R1, R2 ou R4 non respectée.
+    #[error(transparent)]
+    InvalidRequest(#[from] BookingError),
+
+    /// « Créneau libre ? → Non » : conflit (R3), avec des créneaux proposés.
+    #[error("le créneau n'est pas disponible ({} créneau(x) alternatif(s) proposé(s))", alternatives.len())]
+    SlotUnavailable { alternatives: Vec<TimeSlot> },
 }
