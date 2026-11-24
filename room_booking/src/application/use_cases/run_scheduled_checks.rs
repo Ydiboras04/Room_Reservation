@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use crate::{
-    application::ports::{BookingRepository, Clock, Notifier},
+    application::{
+        errors::ApplicationError,
+        ports::{BookingRepository, Clock, Notifier},
+    },
     domain::{
         booking::{Booking, BookingStatus},
         system::System,
@@ -27,13 +30,17 @@ pub struct ScheduledChecksReport {
 /// 2. le domaine applique expiration, no-show, fin d'événement, et indique les rappels dus ;
 /// 3. envoie les rappels, puis les marque comme envoyés ;
 /// 4. enregistre les réservations et renvoie un rapport.
+///
+/// Si un enregistrement échoue, on s'arrête là : les réservations déjà enregistrées le restent,
+/// les autres seront retraitées au prochain passage (leurs changements sont recalculés à partir
+/// de l'heure). Seul effet de bord possible : un rappel envoyé mais pas enregistré repartira.
 pub fn run_scheduled_checks(
     repo: &mut impl BookingRepository,
     clock: &impl Clock,
     notifier: &impl Notifier,
-) -> ScheduledChecksReport {
+) -> Result<ScheduledChecksReport, ApplicationError> {
     let now = clock.now();
-    let mut bookings = repo.find_active();
+    let mut bookings = repo.find_active()?;
     let before: Vec<Snapshot> = bookings.iter().map(Snapshot::of).collect();
 
     let reminder_ids = System::run_scheduled_checks(&mut bookings, now);
@@ -62,10 +69,10 @@ pub fn run_scheduled_checks(
             report.completed.push(id.clone());
         }
 
-        repo.save(booking);
+        repo.save(booking)?;
     }
 
-    report
+    Ok(report)
 }
 
 /// État d'une réservation avant/après les contrôles, pour construire le rapport.
@@ -91,7 +98,8 @@ mod tests {
 
     use crate::{
         application::{
-            fakes::{FakeNotifier, FixedClock, InMemoryBookingRepository, Notification},
+            errors::ApplicationError,
+            fakes::{FailingRepository, FakeNotifier, FixedClock, InMemoryBookingRepository, Notification},
             ports::BookingRepository,
             use_cases::run_scheduled_checks::{ScheduledChecksReport, run_scheduled_checks},
         },
@@ -111,25 +119,25 @@ mod tests {
     #[test]
     fn reminder_is_sent_once_1h_before() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(approved("B-001"));
+        repo.save(approved("B-001")).unwrap();
         let notifier = FakeNotifier::default();
 
-        let first = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 0))), &notifier);
-        let second = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 1))), &notifier);
+        let first = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 0))), &notifier).unwrap();
+        let second = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 1))), &notifier).unwrap();
 
         assert_eq!(first.reminders_sent, vec!["B-001".to_string()]);
         assert!(second.reminders_sent.is_empty());
         assert_eq!(notifier.sent(), vec![Notification::Reminder("B-001".into())]);
-        assert!(repo.find_by_id("B-001").unwrap().is_reminder_sent());
+        assert!(repo.find_by_id("B-001").unwrap().unwrap().is_reminder_sent());
     }
 
     #[test]
     fn no_reminder_before_1h() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(approved("B-001"));
+        repo.save(approved("B-001")).unwrap();
         let notifier = FakeNotifier::default();
 
-        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(8, 59))), &notifier);
+        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(8, 59))), &notifier).unwrap();
 
         assert_eq!(report, ScheduledChecksReport::default());
         assert!(notifier.sent().is_empty());
@@ -138,27 +146,27 @@ mod tests {
     #[test]
     fn pending_request_expires_after_24h_and_is_saved() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(booking("B-001", amphi(), BookingStatus::Requested, t(10, 0), t(12, 0)));
+        repo.save(booking("B-001", amphi(), BookingStatus::Requested, t(10, 0), t(12, 0))).unwrap();
         let notifier = FakeNotifier::default();
 
-        let report = run_scheduled_checks(&mut repo, &FixedClock(requested_at() + TimeDelta::hours(24)), &notifier);
+        let report = run_scheduled_checks(&mut repo, &FixedClock(requested_at() + TimeDelta::hours(24)), &notifier).unwrap();
 
         assert_eq!(report.expired, vec!["B-001".to_string()]);
-        assert!(repo.find_by_id("B-001").unwrap().is_expired());
+        assert!(repo.find_by_id("B-001").unwrap().unwrap().is_expired());
         // une demande expirée n'est plus active : plus surveillée ensuite
-        assert!(repo.find_active().is_empty());
+        assert!(repo.find_active().unwrap().is_empty());
     }
 
     #[test]
     fn no_check_in_after_15_min_is_a_no_show() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(approved("B-001"));
+        repo.save(approved("B-001")).unwrap();
         let notifier = FakeNotifier::default();
 
-        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(10, 16))), &notifier);
+        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(10, 16))), &notifier).unwrap();
 
         assert_eq!(report.no_shows, vec!["B-001".to_string()]);
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert_eq!(*saved.get_status(), BookingStatus::NoShow);
         assert!(saved.get_rooms().iter().all(|r| r.is_free()));
     }
@@ -168,15 +176,15 @@ mod tests {
         let mut repo = InMemoryBookingRepository::default();
         let mut b = approved("B-001");
         b.check_in(event_date().and_time(t(10, 5))).unwrap();
-        repo.save(b);
+        repo.save(b).unwrap();
         let notifier = FakeNotifier::default();
 
-        let during = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(11, 0))), &notifier);
-        let after = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(12, 0))), &notifier);
+        let during = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(11, 0))), &notifier).unwrap();
+        let after = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(12, 0))), &notifier).unwrap();
 
         assert!(during.completed.is_empty());
         assert_eq!(after.completed, vec!["B-001".to_string()]);
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert_eq!(*saved.get_status(), BookingStatus::Approved);
         assert!(saved.get_rooms().iter().all(|r| r.is_free()));
     }
@@ -184,13 +192,13 @@ mod tests {
     #[test]
     fn several_bookings_are_handled_in_one_pass() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(approved("B-NOSHOW"));                     // 10h–12h, pas de check-in
+        repo.save(approved("B-NOSHOW")).unwrap();                     // 10h–12h, pas de check-in
         let mut later = booking("B-LATER", amphi(), BookingStatus::Requested, t(11, 0), t(12, 0));
         later.approve();                                       // 11h–12h → rappel dû à 10h16
-        repo.save(later);
+        repo.save(later).unwrap();
         let notifier = FakeNotifier::default();
 
-        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(10, 16))), &notifier);
+        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(10, 16))), &notifier).unwrap();
 
         assert_eq!(report.no_shows, vec!["B-NOSHOW".to_string()]);
         assert_eq!(report.reminders_sent, vec!["B-LATER".to_string()]);
@@ -199,13 +207,23 @@ mod tests {
     #[test]
     fn cancelled_or_declined_bookings_are_ignored() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(booking("B-001", salle_101(), BookingStatus::Cancelled, t(10, 0), t(12, 0)));
-        repo.save(booking("B-002", amphi(), BookingStatus::Declined, t(10, 0), t(12, 0)));
+        repo.save(booking("B-001", salle_101(), BookingStatus::Cancelled, t(10, 0), t(12, 0))).unwrap();
+        repo.save(booking("B-002", amphi(), BookingStatus::Declined, t(10, 0), t(12, 0))).unwrap();
         let notifier = FakeNotifier::default();
 
-        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 30))), &notifier);
+        let report = run_scheduled_checks(&mut repo, &FixedClock(event_date().and_time(t(9, 30))), &notifier).unwrap();
 
         assert_eq!(report, ScheduledChecksReport::default());
+        assert!(notifier.sent().is_empty());
+    }
+
+    #[test]
+    fn storage_failure_is_returned_and_no_reminder_sent() {
+        let notifier = FakeNotifier::default();
+
+        let result = run_scheduled_checks(&mut FailingRepository, &FixedClock(event_date().and_time(t(9, 0))), &notifier);
+
+        assert!(matches!(result, Err(ApplicationError::Repository(_))));
         assert!(notifier.sent().is_empty());
     }
 }

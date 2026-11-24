@@ -1,11 +1,22 @@
 use crate::{
-    application::{errors::ApplicationError, ports::BookingRepository},
-    domain::booking::Booking,
+    application::{
+        errors::ApplicationError,
+        ports::{BookingRepository, UserRepository},
+    },
+    domain::{booking::Booking, user::User},
 };
+
+/// Charge un utilisateur par son id. Le contrôle du rôle, s'il y en a un,
+/// est fait par l'action du domaine elle-même (`User::ensure_role`).
+pub fn load_user(users: &impl UserRepository, user_id: &str) -> Result<User, ApplicationError> {
+    users
+        .find_by_id(user_id)?
+        .ok_or_else(|| ApplicationError::UserNotFound(user_id.to_string()))
+}
 
 /// Charge une réservation par son id.
 pub fn load_booking(repo: &impl BookingRepository, booking_id: &str) -> Result<Booking, ApplicationError> {
-    repo.find_by_id(booking_id)
+    repo.find_by_id(booking_id)?
         .ok_or_else(|| ApplicationError::BookingNotFound(booking_id.to_string()))
 }
 

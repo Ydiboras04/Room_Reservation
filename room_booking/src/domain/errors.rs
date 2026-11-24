@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::domain::{booking::BookingStatus, system::TimeSlot};
+use crate::domain::{booking::BookingStatus, system::TimeSlot, user::UserRole};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BookingError {
@@ -51,9 +51,9 @@ pub enum BookingError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ApplicantError {
-    #[error("L'utilisateur doit fournir un nom valide")]
-    NameNotValid,
+pub enum UserError {
+    #[error("l'utilisateur {user_id} n'a pas le rôle requis ({required:?})")]
+    MissingRole { user_id: String, required: UserRole },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,6 +72,9 @@ pub enum ResponsibleError {
 
     #[error(transparent)]
     Booking(#[from] BookingError),
+
+    #[error(transparent)]
+    User(#[from] UserError),
 }
 
 #[derive(Debug, thiserror::Error)]

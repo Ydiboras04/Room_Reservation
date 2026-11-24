@@ -1,39 +1,53 @@
 //! Faux adaptateurs pour tester les use cases sans infrastructure.
+//! Les dépôts en mémoire vivent dans `infrastructure::in_memory` (ils servent aussi à
+//! l'exécution) ; ils sont réexportés ici pour que les tests n'aient qu'un seul import.
 
 use std::cell::RefCell;
 
 use chrono::{NaiveDate, NaiveDateTime};
 
+pub use crate::infrastructure::in_memory::{
+    InMemoryBookingRepository, InMemoryRoomRepository, InMemoryUserRepository,
+};
 use crate::{
-    application::ports::{BookingRepository, Clock, Notifier},
-    domain::{booking::Booking, system::TimeSlot},
+    application::ports::{BookingRepository, Clock, Notifier, RepositoryError, UserRepository},
+    domain::{booking::Booking, system::TimeSlot, user::User},
 };
 
-/// Dépôt en mémoire : un simple `Vec`.
+/// Dépôt dont le stockage est en panne : chaque appel échoue.
+/// Sert de dépôt de réservations comme de dépôt d'utilisateurs.
 #[derive(Default)]
-pub struct InMemoryBookingRepository {
-    bookings: Vec<Booking>,
+pub struct FailingRepository;
+
+fn storage_down() -> RepositoryError {
+    RepositoryError::storage("base de données injoignable")
 }
 
-impl BookingRepository for InMemoryBookingRepository {
-    fn find_by_id(&self, id: &str) -> Option<Booking> {
-        self.bookings.iter().find(|b| b.get_id() == id).cloned()
+impl BookingRepository for FailingRepository {
+    fn find_by_id(&self, _id: &str) -> Result<Option<Booking>, RepositoryError> {
+        Err(storage_down())
     }
 
-    fn find_by_date(&self, date: NaiveDate) -> Vec<Booking> {
-        self.bookings.iter().filter(|b| b.get_event_date() == date).cloned().collect()
+    fn find_by_date(&self, _date: NaiveDate) -> Result<Vec<Booking>, RepositoryError> {
+        Err(storage_down())
     }
 
-    fn find_active(&self) -> Vec<Booking> {
-        self.bookings.iter().filter(|b| b.blocks_slot()).cloned().collect()
+    fn find_active(&self) -> Result<Vec<Booking>, RepositoryError> {
+        Err(storage_down())
     }
 
-    /// Insère ou remplace (même id).
-    fn save(&mut self, booking: Booking) {
-        match self.bookings.iter_mut().find(|b| b.get_id() == booking.get_id()) {
-            Some(existing) => *existing = booking,
-            None => self.bookings.push(booking),
-        }
+    fn save(&mut self, _booking: Booking) -> Result<(), RepositoryError> {
+        Err(storage_down())
+    }
+}
+
+impl UserRepository for FailingRepository {
+    fn find_by_id(&self, _id: &str) -> Result<Option<User>, RepositoryError> {
+        Err(storage_down())
+    }
+
+    fn save(&mut self, _user: User) -> Result<(), RepositoryError> {
+        Err(storage_down())
     }
 }
 
@@ -100,4 +114,13 @@ impl Notifier for FakeNotifier {
     fn notify_cancelled(&self, booking: &Booking) {
         self.sent.borrow_mut().push(Notification::Cancelled(booking.get_id().into()));
     }
+}
+
+/// Utilisateurs de test : A-001 (demandeur) et RESP-001 (responsable).
+pub fn users() -> InMemoryUserRepository {
+    use crate::domain::user::UserRole;
+    InMemoryUserRepository::with(vec![
+        User::new("A-001".into(), "User1".into(), UserRole::Applicant),
+        User::new("RESP-001".into(), "Chef".into(), UserRole::Responsible),
+    ])
 }

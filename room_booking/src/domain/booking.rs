@@ -2,7 +2,7 @@
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike};
 
-use crate::domain::applicant::Applicant;
+use crate::domain::user::User;
 use crate::domain::room::{Room, RoomType};
 use crate::domain::errors::BookingError;
 
@@ -41,7 +41,7 @@ pub enum BookingStatus {
 #[derive(Debug, Clone)]
 pub struct Booking {
     id: String,
-    applicant: Applicant,
+    applicant: User,
     rooms: Vec<Room>,
     status: BookingStatus,
     participants: u8,
@@ -55,7 +55,7 @@ pub struct Booking {
 }
 
 impl Booking {
-    pub fn new (id: String, applicant: Applicant, rooms: Vec<Room>, status: BookingStatus, participants: u8, event_date: NaiveDate, event_start: NaiveTime, event_end: NaiveTime, requested_at: NaiveDateTime) -> Result<Self, BookingError> {
+    pub fn new (id: String, applicant: User, rooms: Vec<Room>, status: BookingStatus, participants: u8, event_date: NaiveDate, event_start: NaiveTime, event_end: NaiveTime, requested_at: NaiveDateTime) -> Result<Self, BookingError> {
         Self::check_rooms(&rooms)?;
         Self::check_slot(event_start, event_end)?;                       // R1
         Self::check_capacity(&rooms, participants)?;                     // R2
@@ -147,7 +147,7 @@ impl Booking {
         &self.id
     }
 
-    pub fn get_applicant(&self) -> &Applicant {
+    pub fn get_applicant(&self) -> &User {
         &self.applicant
     }
 
@@ -338,10 +338,10 @@ pub(crate) mod tests {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 
     use crate::domain::{
-        applicant::Applicant,
-        booking::{Booking, BookingStatus},
+            booking::{Booking, BookingStatus},
         errors::BookingError,
         room::{Room, RoomType},
+        user::tests::applicant,
     };
 
     // ---------- helpers ----------
@@ -370,7 +370,7 @@ pub(crate) mod tests {
     fn try_slot(start: NaiveTime, end: NaiveTime) -> Result<Booking, BookingError> {
         Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![amphi()],
             BookingStatus::Requested,
             10,
@@ -384,7 +384,7 @@ pub(crate) mod tests {
     pub(crate) fn booking(id: &str, room: Room, status: BookingStatus, start: NaiveTime, end: NaiveTime) -> Booking {
         Booking::new(
             id.into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![room],
             status,
             10,
@@ -450,7 +450,7 @@ pub(crate) mod tests {
     fn r2_too_many_participants_is_rejected() {
         let result = Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![salle_101()],
             BookingStatus::Requested,
             40,
@@ -466,7 +466,7 @@ pub(crate) mod tests {
     fn r2_participants_equal_to_capacity_is_accepted() {
         let result = Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![salle_101()],
             BookingStatus::Requested,
             30,
@@ -542,7 +542,7 @@ pub(crate) mod tests {
         let requested = NaiveDate::from_ymd_opt(2026, 11, 30).unwrap().and_hms_opt(15, 0, 0).unwrap();
         let result = Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![amphi()],
             BookingStatus::Requested,
             10,
@@ -559,7 +559,7 @@ pub(crate) mod tests {
         let requested = event_date().and_time(t(10, 0)) - TimeDelta::days(30) - TimeDelta::minutes(1);
         let result = Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![amphi()],
             BookingStatus::Requested,
             10,
@@ -576,7 +576,7 @@ pub(crate) mod tests {
         let requested = event_date().and_time(t(10, 0)) - TimeDelta::hours(24);
         let result = Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![amphi()],
             BookingStatus::Requested,
             10,
@@ -659,7 +659,7 @@ pub(crate) mod tests {
     fn try_rooms(rooms: Vec<Room>, participants: u8) -> Result<Booking, BookingError> {
         Booking::new(
             "B-001".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             rooms,
             BookingStatus::Requested,
             participants,

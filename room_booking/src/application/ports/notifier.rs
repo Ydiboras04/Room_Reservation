@@ -1,23 +1,4 @@
-#![allow(dead_code)]
-
-use chrono::{NaiveDate, NaiveDateTime};
-
 use crate::domain::{booking::Booking, system::TimeSlot};
-
-/// Accès aux réservations enregistrées (implémenté par l'infrastructure : BDD, fichier…).
-pub trait BookingRepository {
-    fn find_by_id(&self, id: &str) -> Option<Booking>;
-    fn find_by_date(&self, date: NaiveDate) -> Vec<Booking>;
-    /// Réservations encore « vivantes » : en attente (non expirées) ou approuvées.
-    /// Ce sont celles que les contrôles périodiques doivent surveiller.
-    fn find_active(&self) -> Vec<Booking>;
-    fn save(&mut self, booking: Booking);
-}
-
-/// Source de l'heure actuelle (remplaçable par une horloge fixe dans les tests).
-pub trait Clock {
-    fn now(&self) -> NaiveDateTime;
-}
 
 /// Notifications envoyées aux acteurs du processus.
 pub trait Notifier {

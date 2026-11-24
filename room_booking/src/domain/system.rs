@@ -6,10 +6,10 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 
 use crate::domain::{
-    applicant::Applicant,
     booking::{Booking, BookingStatus, CLOSING_HOUR, OPENING_HOUR, SLOT_STEP_MINUTES},
     errors::{BookingError, SystemError},
     room::Room,
+    user::User,
 };
 
 /// Un créneau horaire proposé au demandeur.
@@ -23,7 +23,7 @@ pub struct TimeSlot {
 #[derive(Debug, Clone)]
 pub struct BookingRequest {
     pub id: String,
-    pub applicant: Applicant,
+    pub applicant: User,
     pub rooms: Vec<Room>,
     pub participants: u8,
     pub event_date: NaiveDate,
@@ -128,20 +128,20 @@ mod tests {
     use chrono::{NaiveTime, TimeDelta};
 
     use crate::domain::{
-        applicant::Applicant,
-        booking::{
+            booking::{
             Booking, BookingStatus,
             tests::{amphi, booking, event_date, requested_at, salle_101, t},
         },
         errors::{BookingError, SystemError},
         room::Room,
         system::{BookingRequest, SubmissionOutcome, System, TimeSlot},
+        user::tests::applicant,
     };
 
     fn request(rooms: Vec<Room>, participants: u8, start: NaiveTime, end: NaiveTime) -> BookingRequest {
         BookingRequest {
             id: "B-NEW".into(),
-            applicant: Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant: applicant(),
             rooms,
             participants,
             event_date: event_date(),
@@ -219,7 +219,7 @@ mod tests {
         let requested = event_date().pred_opt().unwrap().and_time(t(11, 0));
         let wanted = Booking::new(
             "B-NEW".into(),
-            Applicant::new("A-001".into(), "User1".into()).unwrap(),
+            applicant(),
             vec![salle_101()],
             BookingStatus::Requested,
             10,

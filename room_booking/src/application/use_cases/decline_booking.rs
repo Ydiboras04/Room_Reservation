@@ -3,10 +3,10 @@
 use crate::{
     application::{
         errors::ApplicationError,
-        ports::{BookingRepository, Clock, Notifier},
-        use_cases::common::load_booking,
+        ports::{BookingRepository, Clock, Notifier, UserRepository},
+        use_cases::common::{load_booking, load_user},
     },
-    domain::{booking::Booking, responsible::Responsible},
+    domain::booking::Booking,
 };
 
 /// Use case « Valider la demande (amphithéâtre) » → « Approuvée ? → Non » → Refusée :
@@ -16,17 +16,19 @@ use crate::{
 /// 4. notifie le demandeur du refus.
 pub fn decline_booking(
     booking_id: &str,
-    responsible: &Responsible,
+    responsible_id: &str,
+    users: &impl UserRepository,
     repo: &mut impl BookingRepository,
     clock: &impl Clock,
     notifier: &impl Notifier,
 ) -> Result<Booking, ApplicationError> {
+    let responsible = load_user(users, responsible_id)?;
     let mut booking = load_booking(repo, booking_id)?;
 
     let result = responsible.decline_request(&mut booking, clock.now());
 
     // Même en cas d'erreur, la réservation a pu être marquée expirée : on enregistre son état.
-    repo.save(booking.clone());
+    repo.save(booking.clone())?;
 
     result?;
     notifier.notify_declined(&booking);
@@ -40,7 +42,7 @@ mod tests {
     use crate::{
         application::{
             errors::ApplicationError,
-            fakes::{FakeNotifier, FixedClock, InMemoryBookingRepository, Notification},
+            fakes::{FakeNotifier, FixedClock, InMemoryBookingRepository, Notification, users},
             ports::BookingRepository,
             use_cases::decline_booking::decline_booking,
         },
@@ -49,18 +51,13 @@ mod tests {
                 BookingStatus,
                 tests::{amphi, booking, requested_at, t},
             },
-            errors::{BookingError, ResponsibleError},
-            responsible::Responsible,
+            errors::{BookingError, ResponsibleError, UserError},
         },
     };
 
-    fn responsible() -> Responsible {
-        Responsible::new("RESP-001".into(), "Chef".into()).unwrap()
-    }
-
     fn repo_with(status: BookingStatus) -> InMemoryBookingRepository {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(booking("B-001", amphi(), status, t(10, 0), t(12, 0)));
+        repo.save(booking("B-001", amphi(), status, t(10, 0), t(12, 0))).unwrap();
         repo
     }
 
@@ -70,10 +67,10 @@ mod tests {
         let clock = FixedClock(requested_at() + TimeDelta::hours(1));
         let notifier = FakeNotifier::default();
 
-        let result = decline_booking("B-001", &responsible(), &mut repo, &clock, &notifier);
+        let result = decline_booking("B-001", "RESP-001", &users(), &mut repo, &clock, &notifier);
 
         assert!(result.is_ok());
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert_eq!(*saved.get_status(), BookingStatus::Declined);
         assert!(saved.get_rooms().iter().all(|r| r.is_free()));
         assert!(!saved.blocks_slot());
@@ -86,7 +83,7 @@ mod tests {
         let clock = FixedClock(requested_at());
         let notifier = FakeNotifier::default();
 
-        let result = decline_booking("B-404", &responsible(), &mut repo, &clock, &notifier);
+        let result = decline_booking("B-404", "RESP-001", &users(), &mut repo, &clock, &notifier);
 
         assert!(matches!(result, Err(ApplicationError::BookingNotFound(id)) if id == "B-404"));
         assert!(notifier.sent().is_empty());
@@ -98,13 +95,13 @@ mod tests {
         let clock = FixedClock(requested_at() + TimeDelta::hours(24));
         let notifier = FakeNotifier::default();
 
-        let result = decline_booking("B-001", &responsible(), &mut repo, &clock, &notifier);
+        let result = decline_booking("B-001", "RESP-001", &users(), &mut repo, &clock, &notifier);
 
         assert!(matches!(
             result,
             Err(ApplicationError::Responsible(ResponsibleError::Booking(BookingError::Expired)))
         ));
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert!(saved.is_expired());
         assert_eq!(*saved.get_status(), BookingStatus::Requested);
         assert!(notifier.sent().is_empty());
@@ -116,13 +113,13 @@ mod tests {
         let clock = FixedClock(requested_at() + TimeDelta::hours(1));
         let notifier = FakeNotifier::default();
 
-        let result = decline_booking("B-001", &responsible(), &mut repo, &clock, &notifier);
+        let result = decline_booking("B-001", "RESP-001", &users(), &mut repo, &clock, &notifier);
 
         assert!(matches!(
             result,
             Err(ApplicationError::Responsible(ResponsibleError::BookingAlreadyAccepted(_)))
         ));
-        assert_eq!(*repo.find_by_id("B-001").unwrap().get_status(), BookingStatus::Approved);
+        assert_eq!(*repo.find_by_id("B-001").unwrap().unwrap().get_status(), BookingStatus::Approved);
         assert!(notifier.sent().is_empty());
     }
 
@@ -132,12 +129,40 @@ mod tests {
         let clock = FixedClock(requested_at() + TimeDelta::hours(1));
         let notifier = FakeNotifier::default();
 
-        let result = decline_booking("B-001", &responsible(), &mut repo, &clock, &notifier);
+        let result = decline_booking("B-001", "RESP-001", &users(), &mut repo, &clock, &notifier);
 
         assert!(matches!(
             result,
             Err(ApplicationError::Responsible(ResponsibleError::BookingNotRequested(BookingStatus::Declined)))
         ));
         assert!(notifier.sent().is_empty());
+    }
+
+    #[test]
+    fn applicant_cannot_act_as_responsible() {
+        let mut repo = repo_with(BookingStatus::Requested);
+        let clock = FixedClock(requested_at() + TimeDelta::hours(1));
+        let notifier = FakeNotifier::default();
+
+        let result = decline_booking("B-001", "A-001", &users(), &mut repo, &clock, &notifier);
+
+        assert!(matches!(
+            result,
+            Err(ApplicationError::Responsible(ResponsibleError::User(UserError::MissingRole { user_id, .. })))
+                if user_id == "A-001"
+        ));
+        assert_eq!(*repo.find_by_id("B-001").unwrap().unwrap().get_status(), BookingStatus::Requested);
+        assert!(notifier.sent().is_empty());
+    }
+
+    #[test]
+    fn unknown_responsible_returns_user_not_found() {
+        let mut repo = repo_with(BookingStatus::Requested);
+        let clock = FixedClock(requested_at() + TimeDelta::hours(1));
+        let notifier = FakeNotifier::default();
+
+        let result = decline_booking("B-001", "U-404", &users(), &mut repo, &clock, &notifier);
+
+        assert!(matches!(result, Err(ApplicationError::UserNotFound(id)) if id == "U-404"));
     }
 }

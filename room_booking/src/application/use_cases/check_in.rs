@@ -28,12 +28,12 @@ pub fn check_in(
 
     match booking.check_in(now) {
         Ok(()) => {
-            repo.save(booking.clone());
+            repo.save(booking.clone())?;
             Ok(booking)
         }
         Err(error @ BookingError::CheckInTooLate) => {
             booking.update_room_availability(now);
-            repo.save(booking);
+            repo.save(booking)?;
             Err(error.into())
         }
         Err(error) => Err(error.into()),
@@ -63,7 +63,7 @@ mod tests {
         let mut b = booking("B-001", salle_101(), BookingStatus::Requested, t(10, 0), t(12, 0));
         b.approve();
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(b);
+        repo.save(b).unwrap();
         repo
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let result = check_in("B-001", "A-001", &mut repo, &clock);
 
         assert!(result.is_ok());
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert!(saved.is_checked_in());
         assert!(saved.get_rooms().iter().all(|r| !r.is_free()));
     }
@@ -96,7 +96,7 @@ mod tests {
         let result = check_in("B-001", "A-001", &mut repo, &clock);
 
         assert!(matches!(result, Err(ApplicationError::Booking(BookingError::CheckInTooLate))));
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert!(!saved.is_checked_in());
         assert_eq!(*saved.get_status(), BookingStatus::NoShow);
         assert!(saved.get_rooms().iter().all(|r| r.is_free()));
@@ -110,7 +110,7 @@ mod tests {
         let result = check_in("B-001", "A-001", &mut repo, &clock);
 
         assert!(matches!(result, Err(ApplicationError::Booking(BookingError::CheckInTooEarly))));
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert!(!saved.is_checked_in());
         assert_eq!(*saved.get_status(), BookingStatus::Approved);
     }
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn check_in_on_pending_booking_is_refused() {
         let mut repo = InMemoryBookingRepository::default();
-        repo.save(booking("B-001", salle_101(), BookingStatus::Requested, t(10, 0), t(12, 0)));
+        repo.save(booking("B-001", salle_101(), BookingStatus::Requested, t(10, 0), t(12, 0))).unwrap();
         let clock = FixedClock(event_date().and_time(t(10, 0)));
 
         let result = check_in("B-001", "A-001", &mut repo, &clock);
@@ -147,7 +147,7 @@ mod tests {
         let result = check_in("B-001", "A-999", &mut repo, &clock);
 
         assert!(matches!(result, Err(ApplicationError::NotBookingOwner { .. })));
-        assert!(!repo.find_by_id("B-001").unwrap().is_checked_in());
+        assert!(!repo.find_by_id("B-001").unwrap().unwrap().is_checked_in());
     }
 
     #[test]

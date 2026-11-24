@@ -1,12 +1,21 @@
 #![allow(dead_code)]
 
-use crate::domain::errors::{BookingError, ResponsibleError};
+use crate::{
+    application::ports::RepositoryError,
+    domain::errors::{BookingError, ResponsibleError, SystemError},
+};
 
 /// Erreurs des use cases : celles du domaine, plus ce qui vient du chargement des données.
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
     #[error("aucune réservation trouvée avec l'id {0}")]
     BookingNotFound(String),
+
+    #[error("aucune salle trouvée avec l'id {0}")]
+    RoomNotFound(String),
+
+    #[error("aucun utilisateur trouvé avec l'id {0}")]
+    UserNotFound(String),
 
     #[error("le demandeur {applicant_id} n'est pas l'auteur de la réservation {booking_id}")]
     NotBookingOwner { booking_id: String, applicant_id: String },
@@ -16,4 +25,10 @@ pub enum ApplicationError {
 
     #[error(transparent)]
     Booking(#[from] BookingError),
+
+    #[error(transparent)]
+    System(#[from] SystemError),
+
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
 }

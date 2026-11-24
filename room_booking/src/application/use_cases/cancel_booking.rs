@@ -30,7 +30,7 @@ pub fn cancel_booking(
     // En cas d'échec, `cancel` ne modifie pas la réservation : rien à enregistrer.
     booking.cancel(clock.now())?;
 
-    repo.save(booking.clone());
+    repo.save(booking.clone())?;
     notifier.notify_cancelled(&booking);
     Ok(booking)
 }
@@ -62,7 +62,7 @@ mod tests {
         } else if status != BookingStatus::Requested {
             b = booking("B-001", salle_101(), status, t(10, 0), t(12, 0));
         }
-        repo.save(b);
+        repo.save(b).unwrap();
         repo
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let result = cancel_booking("B-001", "A-001", &mut repo, &clock, &notifier);
 
         assert!(result.is_ok());
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert_eq!(*saved.get_status(), BookingStatus::Cancelled);
         assert!(saved.get_rooms().iter().all(|r| r.is_free()));
         assert!(!saved.blocks_slot());
@@ -91,7 +91,7 @@ mod tests {
         let result = cancel_booking("B-001", "A-001", &mut repo, &clock, &notifier);
 
         assert!(result.is_ok());
-        assert_eq!(*repo.find_by_id("B-001").unwrap().get_status(), BookingStatus::Cancelled);
+        assert_eq!(*repo.find_by_id("B-001").unwrap().unwrap().get_status(), BookingStatus::Cancelled);
     }
 
     #[test]
@@ -113,7 +113,7 @@ mod tests {
         let result = cancel_booking("B-001", "A-001", &mut repo, &clock, &notifier);
 
         assert!(matches!(result, Err(ApplicationError::Booking(BookingError::AnnulationTooLate))));
-        let saved = repo.find_by_id("B-001").unwrap();
+        let saved = repo.find_by_id("B-001").unwrap().unwrap();
         assert_eq!(*saved.get_status(), BookingStatus::Approved);
         assert!(saved.get_rooms().iter().all(|r| !r.is_free()));
         assert!(notifier.sent().is_empty());
@@ -132,7 +132,7 @@ mod tests {
             Err(ApplicationError::NotBookingOwner { booking_id, applicant_id })
                 if booking_id == "B-001" && applicant_id == "A-999"
         ));
-        assert_eq!(*repo.find_by_id("B-001").unwrap().get_status(), BookingStatus::Approved);
+        assert_eq!(*repo.find_by_id("B-001").unwrap().unwrap().get_status(), BookingStatus::Approved);
         assert!(notifier.sent().is_empty());
     }
 
